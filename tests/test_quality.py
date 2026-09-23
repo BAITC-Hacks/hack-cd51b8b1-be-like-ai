@@ -248,9 +248,13 @@ def test_consolidation_rejects_overlapping_groups_and_invented_quotes():
 
 def test_final_consolidation_uses_callers_budget():
     meeting, extraction, payload = consolidation_example()
-    engine = ScriptedEngine([json.dumps(payload)])
+    refs = TranscriptReferences(meeting)
+    merged = payload['merges'][0]['task']
+    independent = refs.encode_task(extraction.tasks[2], 'current')
+    independent.pop('task_id')
+    engine = ScriptedEngine([json.dumps(payload), json.dumps(merged), json.dumps(independent)])
     result = engine.consolidate(extraction, meeting, 12345.)
-    assert len(result.tasks) == 2 and engine.calls[0]['deadline'] == 12345.
+    assert len(result.tasks) == 2 and all(c['deadline'] == 12345. for c in engine.calls)
 
 
 def test_consolidation_cannot_merge_different_deliverables_from_different_contexts():
