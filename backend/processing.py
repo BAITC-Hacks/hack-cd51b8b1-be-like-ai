@@ -10,10 +10,10 @@ import time
 
 from .config import Settings
 from .deadlines import resolve_deadline
-from .extraction_audit import AUDIT_PROMPT, apply_audit, audit_input
+from .extraction_audit import AUDIT_PROMPT, CONSOLIDATION_PROMPT, apply_audit, apply_consolidation, audit_input
 from .grounding import canonical, ground_task, merge_exact_tasks, quote_sources
 from .inference import GenerationMonitor, TranscriptReferences
-from .schemas import EvidenceQuote, Extraction, ExtractionAudit, GroundedExtraction, Meeting, Segment, Speaker, SpeakerIdentification, Task
+from .schemas import EvidenceQuote, Extraction, ExtractionAudit, GroundedExtraction, Meeting, Segment, Speaker, SpeakerIdentification, Task, TaskConsolidation
 
 
 log = logging.getLogger('uvicorn.error.hackalem.processing')
@@ -363,6 +363,26 @@ class LocalEngine:
             [references._lookup(references.segments, sid) for sid in quote.evidence_segment_ids]))
         return ground_task(task, meeting, require_quote=True)
 
+    def consolidate(self, extraction, meeting, deadline):
+        if len(extraction.tasks) < 2:
+            return extraction
+        references = TranscriptReferences(meeting)
+        messages = [{'role': 'system', 'content': CONSOLIDATION_PROMPT + '\nJSON Schema:\n' +
+                     json.dumps(TaskConsolidation.model_json_schema(), ensure_ascii=False)},
+                    {'role': 'user', 'content': json.dumps({**references.data,
+                     'tasks': [references.encode_task(t, f'C{i + 1}') for i, t in enumerate(extraction.tasks)]}, ensure_ascii=False)}]
+        for attempt in range(2):
+            answer = self._generate(messages, label=f'consolidate {meeting.id} attempt={attempt + 1}',
+                                    max_tokens=self.settings.llm_max_output_tokens, deadline=deadline)
+            try:
+                return apply_consolidation(extraction, parse_json_output(answer), references, meeting,
+                    grounder=lambda task: self._ground_or_repair(task, meeting, references, deadline))
+            except (ValueError, KeyError) as exc:
+                if attempt:
+                    raise ProcessingError('CONSOLIDATION_FAILED', 'Сверка повторяющихся поручений не завершена. Черновик сохранён.') from None
+                messages.extend([{'role': 'assistant', 'content': answer},
+                    {'role': 'user', 'content': 'Исправь JSON: ' + str(exc)[:1800]}])
+
     def extract(self, meeting: Meeting, on_partial=None):
         self._ensure_llm()
         references = TranscriptReferences(meeting)
@@ -421,6 +441,7 @@ class LocalEngine:
             checked += len(window['primary_segment_ids'])
             log.info('Meeting %s: coverage checked=%d/%d utterances tasks=%d', meeting.id, checked, len(meeting.segments), len(extraction.tasks))
             partial(checked)
+        extraction = self.consolidate(extraction, meeting, deadline)
         extraction.summary.decisions = [f'{task.title}. Ответственный: {task.assignee_name or "не установлен"}. Срок: {task.deadline_text or "не указан"}.'
                                         for task in extraction.tasks]
         trial = meeting.model_copy(deep=True)

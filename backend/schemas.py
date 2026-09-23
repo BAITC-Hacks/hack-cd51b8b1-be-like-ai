@@ -177,3 +177,14 @@ class ExtractionAudit(StrictModel):
     additions: list[GroundedTask] = Field(max_length=100)
     corrections: list[TaskCorrection] = Field(max_length=100)
     removals: list[TaskRemoval] = Field(max_length=100)
+
+
+class TaskMerge(StrictModel):
+    task_ids: list[str] = Field(min_length=2, max_length=100)
+    reason: str = Field(min_length=1, max_length=500)
+    task: GroundedTask
+
+
+class TaskConsolidation(StrictModel):
+    merges: list[TaskMerge] = Field(max_length=100)
+    corrections: list[TaskCorrection] = Field(max_length=100)

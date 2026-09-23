@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from backend.extraction_audit import apply_audit, audit_input
+from backend.extraction_audit import apply_audit, apply_consolidation, audit_input
 from backend.grounding import ground_task
 from backend.inference import TranscriptReferences
 from backend.processing import ProcessingError, align_words, materialize_extraction
@@ -208,3 +208,45 @@ def test_point_timestamps_use_unique_active_voice_without_creating_unknown_fragm
         {'start': 0., 'end': 1., 'word': 'Тимур'}, {'start': 1., 'end': 1., 'word': ' Болатович'}]}], [(0., 2., 'A')])
     assert len(segments) == 1 and segments[0].speaker_id == speakers[0].id
     assert segments[0].text == 'Тимур Болатович' and segments[0].needs_review
+
+
+def consolidation_example():
+    meeting = meeting_from_texts('Алия, запросите заключение юристов.', 'Хорошо, к среде будет ответ.',
+                                 'Подготовьте отдельную смету к пятнице.')
+    extraction = Extraction(summary={}, tasks=[
+        task(meeting, None, meeting.segments[0].text),
+        task(meeting, 'к среде', meeting.segments[1].text, [meeting.segments[1].id]),
+        task(meeting, 'к пятнице', meeting.segments[2].text, [meeting.segments[2].id])])
+    payload = {'merges': [{'task_ids': ['C1', 'C2'], 'reason': 'Просьба и ответ с уточнением срока',
+        'task': {'title': 'Запросить заключение юристов', 'assignee_name': 'Алия',
+                 'deadline_text': 'к среде', 'deadline_kind': 'relative',
+                 'evidence_quote': meeting.segments[0].text, 'evidence_segment_ids': ['T1', 'T2']}}],
+        'corrections': []}
+    return meeting, extraction, payload
+
+
+def test_consolidation_keeps_independent_tasks_and_all_dialogue_sources():
+    meeting, extraction, payload = consolidation_example()
+    result = apply_consolidation(extraction, payload, TranscriptReferences(meeting), meeting)
+    assert len(result.tasks) == 2 and len(extraction.tasks) == 3
+    assert result.tasks[0].deadline_text == 'к среде'
+    assert result.tasks[0].evidence_segment_ids == [s.id for s in meeting.segments[:2]]
+    assert result.tasks[1] == extraction.tasks[2]
+
+
+def test_consolidation_rejects_overlapping_groups_and_invented_quotes():
+    meeting, extraction, payload = consolidation_example()
+    payload['merges'].append(payload['merges'][0])
+    with pytest.raises(ValueError, match='overlapping'):
+        apply_consolidation(extraction, payload, TranscriptReferences(meeting), meeting)
+    payload['merges'].pop()
+    payload['merges'][0]['task']['evidence_quote'] = 'Уволить всех сотрудников.'
+    with pytest.raises(ValueError, match='quote'):
+        apply_consolidation(extraction, payload, TranscriptReferences(meeting), meeting)
+
+
+def test_final_consolidation_uses_callers_budget():
+    meeting, extraction, payload = consolidation_example()
+    engine = ScriptedEngine([json.dumps(payload)])
+    result = engine.consolidate(extraction, meeting, 12345.)
+    assert len(result.tasks) == 2 and engine.calls[0]['deadline'] == 12345.
