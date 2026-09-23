@@ -134,7 +134,9 @@ def consolidation_candidates(extraction, meeting):
         source_positions = {positions[sid] for t in (a, b) for sid in t.evidence_segment_ids}
         adjacent_reply = (a.assignee_name and b.assignee_name and
             canonical(a.assignee_name) == canonical(b.assignee_name) and source_positions and
-            max(source_positions) - min(source_positions) <= 1)
+            max(source_positions) - min(source_positions) == 1 and
+            re.match(r'^(?:хорошо|принято|понял|сделаю|запрошу|подготовлю|согласую|созвонимся|жақсы|түсіндім|орындаймын)\b',
+                     canonical(meeting.segments[max(source_positions)].text)))
         if similar or adjacent_reply:
             pairs.append([f'C{i + 1}', f'C{j + 1}'])
     return pairs

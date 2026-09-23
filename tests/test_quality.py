@@ -260,3 +260,12 @@ def test_consolidation_cannot_merge_different_deliverables_from_different_contex
     payload['merges'][0]['task_ids'] = ['C1', 'C3']
     with pytest.raises(ValueError, match='different actions'):
         apply_consolidation(extraction, payload, TranscriptReferences(meeting), meeting)
+
+
+def test_adjacent_same_assignee_is_not_enough_without_an_acceptance_reply():
+    meeting, extraction, payload = consolidation_example()
+    meeting.segments[1].text = 'И подготовьте отдельную смету.'
+    extraction.tasks[0].title = 'Запросить заключение юристов'
+    extraction.tasks[1].title = 'Подготовить отдельную смету'
+    with pytest.raises(ValueError, match='different actions'):
+        apply_consolidation(extraction, payload, TranscriptReferences(meeting), meeting)
