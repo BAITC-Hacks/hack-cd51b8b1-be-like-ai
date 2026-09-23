@@ -129,6 +129,19 @@ def test_quote_repair_is_small_and_keeps_the_same_generation_budget():
     assert len({call['deadline'] for call in engine.calls}) == 1
 
 
+def test_audit_quote_uses_the_same_exact_repair_as_the_draft():
+    text = 'Алия, подготовьте финансовое решение по проекту к пятнице.'
+    meeting = meeting_from_texts(text)
+    initial = {'summary': {}, 'tasks': [], 'speakers': []}
+    audit = {'checked_segment_ids': ['T1'], 'additions': [{'title': 'Подготовить финансовое решение',
+        'evidence_quote': text.replace('Алия', 'Алея'), 'evidence_segment_ids': ['T1']}], 'corrections': [], 'removals': []}
+    repair = {'evidence_quote': 'подготовьте финансовое решение по проекту к пятнице.', 'evidence_segment_ids': ['T1']}
+    engine = ScriptedEngine([json.dumps(initial), json.dumps(audit), json.dumps(repair)])
+    result = engine.extract(meeting)
+    assert result.extraction_checked_segments == 1
+    assert result.tasks[0].evidence_quote == repair['evidence_quote']
+
+
 def test_incomplete_audit_never_reports_completed_coverage():
     meeting = meeting_from_texts('Айдана, подготовьте отчёт.', 'Срок до пятницы.')
     first = {'summary': {}, 'tasks': [], 'speakers': []}

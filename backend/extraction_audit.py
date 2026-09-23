@@ -31,7 +31,8 @@ checked_segment_ids должны перечислить все primary_segment_i
 '''
 
 
-def apply_audit(extraction, payload, references, meeting, window):
+def apply_audit(extraction, payload, references, meeting, window, *, grounder=None):
+    grounder = grounder or (lambda task: ground_task(task, meeting, require_quote=True))
     audit = ExtractionAudit.model_validate(payload)
     primary = set(window['primary_segment_ids'])
     checked = set(audit.checked_segment_ids)
@@ -48,7 +49,7 @@ def apply_audit(extraction, payload, references, meeting, window):
     visible = {references.segments[s['id']] for s in window['segments']}
     result = extraction.model_copy(deep=True)
     for correction in audit.corrections:
-        task = ground_task(references.decode_task(correction.task), meeting, require_quote=True)
+        task = grounder(references.decode_task(correction.task))
         if not set(task.evidence_segment_ids) & visible:
             raise ValueError('Correction has no evidence in the checked window')
         result.tasks[known[correction.task_id]] = task
@@ -58,7 +59,7 @@ def apply_audit(extraction, payload, references, meeting, window):
             raise ValueError('Removal has no evidence in the checked window')
     result.tasks = [task for i, task in enumerate(result.tasks) if f'C{i + 1}' not in removed]
     for addition in audit.additions:
-        task = ground_task(references.decode_task(addition), meeting, require_quote=True)
+        task = grounder(references.decode_task(addition))
         if not set(task.evidence_segment_ids) & visible:
             raise ValueError('Added task has no evidence in the checked window')
         result.tasks.append(task)
