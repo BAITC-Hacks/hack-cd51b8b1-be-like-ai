@@ -22,6 +22,7 @@ class Speaker(StrictModel):
     label: str
     display_name: str
     identification: Literal['unknown', 'suggested', 'confirmed'] = 'unknown'
+    evidence_segment_ids: list[str] = Field(default_factory=list)
 
 
 class Segment(StrictModel):
@@ -138,3 +139,7 @@ class Extraction(StrictModel):
     summary: Summary
     tasks: list[ExtractedTask] = Field(max_length=100)
     speakers: list[SpeakerSuggestion] = Field(default_factory=list, max_length=30)
+
+
+class SpeakerIdentification(StrictModel):
+    speakers: list[SpeakerSuggestion] = Field(max_length=30)

@@ -17,6 +17,8 @@ class Settings:
     max_duration_seconds: int = 3600
     llm_max_input_tokens: int = 20000
     llm_max_output_tokens: int = 6000
+    llm_timeout_seconds: int = field(default_factory=lambda: int(os.getenv('HACKALEM_LLM_TIMEOUT_SECONDS', '240')))
+    speaker_timeout_seconds: int = 60
     device: str = field(default_factory=lambda: os.getenv('HACKALEM_DEVICE', 'cuda'))
     cors_origins: list[str] = field(default_factory=lambda: [
         x.strip() for x in os.getenv('HACKALEM_CORS_ORIGINS', 'http://localhost:5173,http://127.0.0.1:5173').split(',') if x.strip()
@@ -25,4 +27,3 @@ class Settings:
     def prepare(self):
         self.data_dir.mkdir(parents=True, exist_ok=True)
         (self.data_dir / 'uploads').mkdir(exist_ok=True)
-

@@ -1,5 +1,6 @@
 """Offline model smoke check; synthetic text is used unless --audio is supplied."""
 import argparse
+import logging
 from datetime import datetime, timezone
 import os
 from pathlib import Path
@@ -19,6 +20,7 @@ from backend.schemas import Meeting, Segment, Speaker
 
 
 def main():
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
     parser = argparse.ArgumentParser()
     parser.add_argument('--audio', type=Path, help='Optional authorized test recording already on the server')
     args = parser.parse_args()
@@ -60,6 +62,8 @@ def main():
                 text='Алия, подготовьте отчёт по закупкам до 25 сентября 2026 года.')]
         meeting = Meeting(title='Проверка локальных моделей', created_at=datetime.now(timezone.utc),
                           speakers=speakers, segments=segments)
+        if args.audio:
+            meeting.speakers = engine.identify_speakers(meeting)
         result = engine.extract(meeting)
         print(f'LLM completed with valid sources: {len(result.tasks)} tasks.', flush=True)
         if not args.audio and not result.tasks:
