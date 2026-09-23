@@ -88,6 +88,19 @@ def apply_speaker_suggestions(meeting: Meeting, suggestions):
             raise ValueError('Speaker suggestion references unknown source IDs')
         if not any(segments[sid].speaker_id == suggestion.speaker_id for sid in suggestion.evidence_segment_ids):
             raise ValueError('Speaker identification needs a cited utterance by that speaker')
+        # A mixed acoustic cluster must not acquire the addressee's name merely because
+        # the chair addresses that person inside the same cluster. Allow case endings
+        # in a cited handoff, but still require a different voice or self-introduction.
+        words = re.findall(r'[^\W\d_]+', canonical(suggestion.display_name))
+        name_pattern = r'\b' + r'\s+'.join(re.escape(w[:-2]) + r'\w*' if len(w) >= 6 else re.escape(w)
+                                           for w in words) + r'\b'
+        named = [segments[sid] for sid in suggestion.evidence_segment_ids
+                 if words and re.search(name_pattern, canonical(segments[sid].text))]
+        has_handoff = any(s.speaker_id and s.speaker_id != suggestion.speaker_id for s in named)
+        has_introduction = any(s.speaker_id == suggestion.speaker_id and
+            re.search(r'меня зовут|мое имя|менің атым|my name is', canonical(s.text)) for s in named)
+        if not has_handoff and not has_introduction:
+            raise ValueError('Name needs a cited handoff from another voice or self-introduction')
         if suggestion.speaker_id in proposed and proposed[suggestion.speaker_id] != suggestion.display_name:
             raise ValueError('Conflicting names for one speaker')
         proposed[suggestion.speaker_id] = suggestion.display_name

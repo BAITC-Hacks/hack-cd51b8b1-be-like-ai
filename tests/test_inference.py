@@ -100,6 +100,24 @@ def test_generic_voice_label_is_not_an_identified_person():
     assert meeting.speakers[1].identification == 'unknown'
 
 
+def test_address_and_reply_in_same_voice_do_not_name_mixed_cluster():
+    meeting = sample_meeting()
+    meeting.segments[1].speaker_id = meeting.speakers[0].id
+    suggestion = SpeakerSuggestion(speaker_id=meeting.speakers[0].id, display_name='Батагус Нурлановна',
+                                   evidence_segment_ids=[s.id for s in meeting.segments])
+    with pytest.raises(ValueError, match='handoff'):
+        apply_speaker_suggestions(meeting, [suggestion])
+    assert meeting.speakers[0].identification == 'unknown'
+
+
+def test_self_introduction_can_name_a_voice_without_handoff():
+    meeting = sample_meeting()
+    meeting.segments[1].text = 'Меня зовут Батагус Нурлановна. Подготовлю отчёт.'
+    apply_speaker_suggestions(meeting, [SpeakerSuggestion(speaker_id=meeting.speakers[1].id,
+        display_name='Батагус Нурлановна', evidence_segment_ids=[meeting.segments[1].id])])
+    assert meeting.speakers[1].identification == 'suggested'
+
+
 def test_one_bad_name_does_not_discard_other_grounded_suggestions():
     meeting = sample_meeting()
     payload = name_payload()
