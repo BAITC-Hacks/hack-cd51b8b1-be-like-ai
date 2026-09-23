@@ -34,8 +34,10 @@ checked_segment_ids должны перечислить все primary_segment_i
 def apply_audit(extraction, payload, references, meeting, window):
     audit = ExtractionAudit.model_validate(payload)
     primary = set(window['primary_segment_ids'])
-    if len(audit.checked_segment_ids) != len(primary) or set(audit.checked_segment_ids) != primary:
-        raise ValueError('Coverage check must account for every primary utterance exactly once')
+    checked = set(audit.checked_segment_ids)
+    visible_aliases = {s['id'] for s in window['segments']}
+    if len(audit.checked_segment_ids) != len(checked) or not primary <= checked or not checked <= visible_aliases:
+        raise ValueError('Coverage check must include every primary utterance once and only visible utterances')
     known = {f'C{i + 1}': i for i in range(len(extraction.tasks))}
     corrected = [item.task_id for item in audit.corrections]
     removed = [item.task_id for item in audit.removals]

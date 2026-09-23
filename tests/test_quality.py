@@ -141,6 +141,17 @@ def test_incomplete_audit_never_reports_completed_coverage():
     assert partials[-1].extraction_checked_segments == 0
 
 
+def test_audit_may_also_check_visible_context_without_inflating_primary_coverage():
+    meeting = meeting_from_texts('Первое обсуждение.', 'Второе обсуждение.', 'Третье обсуждение.', 'Четвёртое обсуждение.')
+    refs = TranscriptReferences(meeting)
+    window = next(refs.windows(10, context_segments=1))
+    payload = {'checked_segment_ids': ['T1', 'T2'], 'additions': [], 'corrections': [], 'removals': []}
+    apply_audit(Extraction(summary={}, tasks=[]), payload, refs, meeting, window)
+    payload['checked_segment_ids'].append('T4')
+    with pytest.raises(ValueError):
+        apply_audit(Extraction(summary={}, tasks=[]), payload, refs, meeting, window)
+
+
 def test_audit_correction_preserves_completion_criteria():
     text = 'Нурлан, на следующей неделе проведите инструктаж на всех площадках с реальной проверкой знаний.'
     meeting = meeting_from_texts(text)

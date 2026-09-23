@@ -13,7 +13,8 @@ sys.path.insert(0, str(ROOT))
 from backend.config import Settings
 from backend.exports import export_pdf, export_docx
 from backend.processing import LocalEngine, align_words
-from backend.schemas import Meeting, new_id
+from backend.inference import TranscriptReferences
+from backend.schemas import ExtractedTask, Meeting, new_id
 from backend.storage import Store
 
 
@@ -26,6 +27,7 @@ def main():
     input_mode = parser.add_mutually_exclusive_group()
     input_mode.add_argument('--retranscribe', action='store_true')
     input_mode.add_argument('--transcript-json', type=Path, help='Reuse transcript.json from an earlier run of the same meeting')
+    parser.add_argument('--draft-json', type=Path, help='Reuse a saved draft; run its grounding and all coverage audits again')
     parser.add_argument('--save-as-new', action='store_true')
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
@@ -39,6 +41,9 @@ def main():
     meeting.tasks = []
     meeting.extraction_checked_segments = 0
     (args.output_dir / 'before.json').write_text(original.model_dump_json(indent=2), encoding='utf-8')
+    draft = Meeting.model_validate_json(args.draft_json.read_text(encoding='utf-8')) if args.draft_json else None
+    if draft and (draft.id != meeting.id or [(s.id, s.text) for s in draft.segments] != [(s.id, s.text) for s in meeting.segments]):
+        raise SystemExit('Draft and transcript must belong to the same exact transcription')
 
     class TracedEngine(LocalEngine):
         sequence = 0
@@ -46,7 +51,19 @@ def main():
         def _generate(self, messages, **kwargs):
             self.sequence += 1
             # Traces stay in the private output directory, never in server console logs.
-            answer = super()._generate(messages, **kwargs)
+            if draft and kwargs['label'].startswith('extract ') and kwargs['label'].endswith('attempt=1'):
+                refs = TranscriptReferences(meeting)
+                tasks = []
+                for task in draft.tasks:
+                    item = ExtractedTask.model_validate({k: v for k, v in task.model_dump().items() if k in ExtractedTask.model_fields})
+                    item.review_reasons = [r for r in item.review_reasons if r != 'Проверка полноты поручений ещё не завершена']
+                    data = refs.encode_task(item, 'cached')
+                    data.pop('task_id')
+                    tasks.append(data)
+                answer = json.dumps({'summary': draft.summary.model_dump(), 'tasks': tasks, 'speakers': []}, ensure_ascii=False)
+                logging.info('Using saved draft; grounding and all coverage windows will run again')
+            else:
+                answer = super()._generate(messages, **kwargs)
             (args.output_dir / f'model-{self.sequence:02}.txt').write_text(answer, encoding='utf-8')
             return answer
 
@@ -73,6 +90,7 @@ def main():
     metrics = {'meeting_id': result.id, 'tasks': len(result.tasks), 'segments': len(result.segments),
                'checked_segments': result.extraction_checked_segments, 'elapsed_seconds': round(time.monotonic() - started, 1),
                'retranscribed': args.retranscribe, 'cached_transcript': bool(args.transcript_json),
+               'cached_draft': bool(args.draft_json),
                'accuracy': 'Requires human comparison; not inferred from task count.'}
     (args.output_dir / 'run.json').write_text(json.dumps(metrics, indent=2), encoding='utf-8')
     print(json.dumps(metrics), flush=True)
