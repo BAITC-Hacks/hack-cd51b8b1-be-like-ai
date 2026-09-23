@@ -10,7 +10,7 @@ import time
 
 from .config import Settings
 from .deadlines import resolve_deadline
-from .extraction_audit import AUDIT_PROMPT, CONSOLIDATION_PROMPT, apply_audit, apply_consolidation, audit_input
+from .extraction_audit import AUDIT_PROMPT, CONSOLIDATION_PROMPT, apply_audit, apply_consolidation, audit_input, consolidation_candidates
 from .grounding import canonical, ground_task, merge_exact_tasks, quote_sources
 from .inference import GenerationMonitor, TranscriptReferences
 from .schemas import EvidenceQuote, Extraction, ExtractionAudit, GroundedExtraction, Meeting, Segment, Speaker, SpeakerIdentification, Task, TaskConsolidation
@@ -370,6 +370,7 @@ class LocalEngine:
         messages = [{'role': 'system', 'content': CONSOLIDATION_PROMPT + '\nJSON Schema:\n' +
                      json.dumps(TaskConsolidation.model_json_schema(), ensure_ascii=False)},
                     {'role': 'user', 'content': json.dumps({**references.data,
+                     'candidate_pairs': consolidation_candidates(extraction, meeting),
                      'tasks': [references.encode_task(t, f'C{i + 1}') for i, t in enumerate(extraction.tasks)]}, ensure_ascii=False)}]
         for attempt in range(2):
             answer = self._generate(messages, label=f'consolidate {meeting.id} attempt={attempt + 1}',

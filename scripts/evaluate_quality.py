@@ -12,9 +12,9 @@ sys.path.insert(0, str(ROOT))
 
 from backend.config import Settings
 from backend.exports import export_pdf, export_docx
-from backend.processing import LocalEngine, align_words
+from backend.processing import LocalEngine, align_words, materialize_extraction
 from backend.inference import TranscriptReferences
-from backend.schemas import ExtractedTask, Meeting, new_id
+from backend.schemas import ExtractedTask, Extraction, Meeting, new_id
 from backend.storage import Store
 
 
@@ -28,6 +28,7 @@ def main():
     input_mode.add_argument('--retranscribe', action='store_true')
     input_mode.add_argument('--transcript-json', type=Path, help='Reuse transcript.json from an earlier run of the same meeting')
     parser.add_argument('--draft-json', type=Path, help='Reuse a saved draft; run its grounding and all coverage audits again')
+    parser.add_argument('--consolidate-only', action='store_true', help='Recheck duplicates in a fully audited saved result; not a full-pipeline benchmark')
     parser.add_argument('--save-as-new', action='store_true')
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
@@ -38,8 +39,12 @@ def main():
     meeting = Meeting.model_validate_json(args.transcript_json.read_text(encoding='utf-8')) if args.transcript_json else original.model_copy(deep=True)
     if meeting.id != original.id:
         raise SystemExit('Cached transcript belongs to a different meeting')
-    meeting.tasks = []
-    meeting.extraction_checked_segments = 0
+    if args.consolidate_only:
+        if not args.transcript_json or args.draft_json or meeting.status != 'ready' or meeting.extraction_checked_segments != len(meeting.segments):
+            raise SystemExit('Consolidation-only needs a ready, fully audited --transcript-json and no draft')
+    else:
+        meeting.tasks = []
+        meeting.extraction_checked_segments = 0
     (args.output_dir / 'before.json').write_text(original.model_dump_json(indent=2), encoding='utf-8')
     draft = Meeting.model_validate_json(args.draft_json.read_text(encoding='utf-8')) if args.draft_json else None
     if draft and (draft.id != meeting.id or [(s.id, s.text) for s in draft.segments] != [(s.id, s.text) for s in meeting.segments]):
@@ -83,8 +88,17 @@ def main():
             speaker.evidence_segment_ids = []
     meeting.speakers = engine.identify_speakers(meeting)
     def partial(result):
+        result.status, result.stage, result.progress = 'processing', 'extract', None
         (args.output_dir / 'partial.json').write_text(result.model_dump_json(indent=2), encoding='utf-8')
-    result = engine.extract(meeting, on_partial=partial)
+    if args.consolidate_only:
+        extraction = Extraction(summary=meeting.summary, tasks=[ExtractedTask.model_validate(
+            {k: v for k, v in task.model_dump().items() if k in ExtractedTask.model_fields}) for task in meeting.tasks])
+        extraction = engine.consolidate(extraction, meeting, time.monotonic() + settings.llm_timeout_seconds)
+        extraction.summary.decisions = [f'{t.title}. Ответственный: {t.assignee_name or "не установлен"}. Срок: {t.deadline_text or "не указан"}.' for t in extraction.tasks]
+        materialize_extraction(meeting, extraction)
+        result = meeting
+    else:
+        result = engine.extract(meeting, on_partial=partial)
     result.status, result.stage, result.progress, result.error = 'ready', 'complete', 100., None
     if args.save_as_new:
         result.id, result.created_at = new_id(), datetime.now(timezone.utc)
@@ -97,6 +111,7 @@ def main():
                'checked_segments': result.extraction_checked_segments, 'elapsed_seconds': round(time.monotonic() - started, 1),
                'retranscribed': args.retranscribe, 'cached_transcript': bool(args.transcript_json),
                'cached_draft': bool(args.draft_json),
+               'consolidation_only': args.consolidate_only,
                'accuracy': 'Requires human comparison; not inferred from task count.'}
     (args.output_dir / 'run.json').write_text(json.dumps(metrics, indent=2), encoding='utf-8')
     print(json.dumps(metrics), flush=True)

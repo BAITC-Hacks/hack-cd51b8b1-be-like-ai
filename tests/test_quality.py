@@ -222,6 +222,7 @@ def consolidation_example():
                  'deadline_text': 'к среде', 'deadline_kind': 'relative',
                  'evidence_quote': meeting.segments[0].text, 'evidence_segment_ids': ['T1', 'T2']}}],
         'corrections': []}
+    extraction.tasks[0].assignee_name = extraction.tasks[1].assignee_name = 'Алия'
     return meeting, extraction, payload
 
 
@@ -250,3 +251,12 @@ def test_final_consolidation_uses_callers_budget():
     engine = ScriptedEngine([json.dumps(payload)])
     result = engine.consolidate(extraction, meeting, 12345.)
     assert len(result.tasks) == 2 and engine.calls[0]['deadline'] == 12345.
+
+
+def test_consolidation_cannot_merge_different_deliverables_from_different_contexts():
+    meeting, extraction, payload = consolidation_example()
+    extraction.tasks[0].title = 'Подготовить финансовое решение'
+    extraction.tasks[2].title = 'Провести инструктаж по безопасности'
+    payload['merges'][0]['task_ids'] = ['C1', 'C3']
+    with pytest.raises(ValueError, match='different actions'):
+        apply_consolidation(extraction, payload, TranscriptReferences(meeting), meeting)
