@@ -106,29 +106,31 @@ input[type="checkbox"] {
   gap: 9px;
   padding: 0 7px;
   margin-bottom: 36px;
-  font-size: 34px;
+  font-size: 28px;
   font-weight: 750;
-  letter-spacing: -1.6px;
+  letter-spacing: -1px;
 }
 .brand-icon {
   display: grid;
   place-items: center;
   width: 37px;
   height: 39px;
+  flex-shrink: 0;
   background: #254d3c;
   color: #d6eedc;
   border-radius: 12px;
   transform: rotate(-3deg);
 }
-.brand-dot {
-  color: #67997a;
+.brand-wordmark {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  line-height: 1.1;
 }
 .brand-caption {
-  font-size: 8px;
-  letter-spacing: 1.25px;
-  margin-left: 3px;
-  align-self: end;
-  margin-bottom: 9px;
+  font-size: 7px;
+  letter-spacing: 1px;
+  font-weight: 600;
   color: #7a897e;
 }
 .workspace-label {

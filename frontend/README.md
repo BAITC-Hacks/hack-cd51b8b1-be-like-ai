@@ -1,4 +1,6 @@
-# Alem · протокол совещаний
+# Meetora · протокол совещаний
+
+Продукт команды **Be Like AI**.
 
 React + TypeScript + Vite. Требуется Node.js 22.20+.
 

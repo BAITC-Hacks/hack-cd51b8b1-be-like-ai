@@ -328,16 +328,16 @@ export default function App() {
           <span className="brand-icon">
             <AudioLines size={25} />
           </span>
-          <span>
-            alem<span className="brand-dot">.</span>
+          <span className="brand-wordmark">
+            <span>Meetora</span>
+            <span className="brand-caption">ПРОТОКОЛ СОВЕЩАНИЙ</span>
           </span>
-          <span className="brand-caption">ПРОТОКОЛ</span>
         </a>
         <div className="workspace-label">
-          <span className="workspace-avatar">A</span>
+          <span className="workspace-avatar">BL</span>
           <div>
-            <strong>Рабочее пространство</strong>
-            <span>Ассистент совещаний</span>
+            <strong>Be Like AI</strong>
+            <span>Команда проекта</span>
           </div>
         </div>
         <button
@@ -427,14 +427,14 @@ export default function App() {
             >
               <Menu size={21} />
             </button>
-            <span>Рабочее пространство</span>
+            <span>Be Like AI</span>
             <ChevronRight size={14} />
             <strong>Совещания</strong>
           </div>
           <div className="topbar-right">
             <span className="language-pill">RU / ҚАЗ</span>
-            <span className="user-avatar" title="Рабочее пространство">
-              A
+            <span className="user-avatar" title="Команда Be Like AI">
+              BL
             </span>
           </div>
         </header>
@@ -922,7 +922,7 @@ export default function App() {
           )}
           <footer className="page-footer">
             <span>
-              <AudioLines size={14} /> alem. протокол
+              <AudioLines size={14} /> Meetora · Be Like AI
             </span>
             <span>Ясные решения. Проверяемые поручения.</span>
           </footer>
