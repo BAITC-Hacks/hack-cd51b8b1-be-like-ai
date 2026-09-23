@@ -1,6 +1,6 @@
 # Подготовка GPU-сервера Brev
 
-Проверено по пользовательским скриншотам: Ubuntu, Python 3.12.14, A100-SXM4-40GB, 40960 MiB видеопамяти, около 260 GiB свободного диска. PyTorch 2.8.0+cu128 видит CUDA и успешно выполняет умножение матриц. Предупреждение `No module named 'numpy'` устраняется установкой inference-зависимостей. Пользователь подтвердил доступ к pyannote; загрузка и запуск моделей ещё не проверены.
+Проверено по пользовательским скриншотам и выводу терминала: Ubuntu, Python 3.12.14, A100-SXM4-40GB, 40960 MiB видеопамяти, около 260 GiB свободного диска. PyTorch 2.8.0+cu128 видит CUDA и успешно выполняет умножение матриц. Все три модели скачаны; после обновления pyannote.audio до 4.0.3 скрипт завершился с `MODEL CHECK OK`. Проверены инициализация на тишине и извлечение одного поручения из синтетического текста; [проверка качества реальной речи ещё требуется](GPU_VALIDATION.md).
 
 Полная инструкция скачивания весов и запуска приложения находится в [README](../README.md#запуск-на-brev-a100). Этот файл описывает подготовку окружения отдельно от приложения.
 
@@ -72,7 +72,28 @@ PY
 
 - [PyTorch 2.8.0 и CUDA 12.8: официальная команда установки](https://pytorch.org/get-started/previous-versions/#v280).
 - [Таблица совместимости TorchCodec](https://github.com/meta-pytorch/torchcodec): 0.7 соответствует PyTorch 2.8.
-- [Зависимости pyannote.audio 4.0.1](https://pypi.org/project/pyannote.audio/4.0.1/): требуется PyTorch/torchaudio 2.8 или новее.
+- [Зависимости pyannote.audio 4.0.3](https://pypi.org/project/pyannote.audio/4.0.3/): закреплены PyTorch/torchaudio 2.8.0 и TorchCodec 0.7.0; они совпадают с версиями проекта.
 - [Требования faster-whisper к CUDA-библиотекам](https://github.com/SYSTRAN/faster-whisper#gpu): CUDA 12, cuBLAS и cuDNN 9. Скрипт добавляет пути библиотек из виртуального окружения перед запуском Python.
 
 Драйвер, установленный организаторским окружением, сохраняется. Совместимость библиотек и работа реальных моделей окончательно подтверждаются на VM.
+
+## Ошибка `Weights only load failed` / `Specifications`
+
+Старая фиксация `pyannote.audio==4.0.1` несовместима с поведением загрузчика Lightning 2.6+: при загрузке checkpoint возникает `Unsupported global: pyannote.audio.core.task.Specifications`. В pyannote 4.0.3 есть [официальное исправление загрузчика](https://github.com/pyannote/pyannote-audio/pull/1962); обе точки загрузки checkpoint явно задают нужный режим. Используются веса официального `pyannote/speaker-diarization-community-1`, скачанные скриптом проекта.
+
+Для уже распакованного старого архива выполнить в терминале Brev из `~/workspace/hackalem-ai`, с активным venv:
+
+```bash
+sed -i 's/pyannote\.audio==4\.0\.1/pyannote.audio==4.0.3/g' requirements-inference.txt scripts/setup_brev.sh
+python -m pip install "pyannote.audio==4.0.3"
+```
+
+После успешной установки:
+
+```bash
+python -m pip check
+source scripts/activate_env.sh
+python scripts/check_models.py
+```
+
+Скачивание весов заново не требуется. Глобальные переменные обхода `TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD` и изменения `site-packages` не нужны. Совместимость зависимостей и наличие исправления проверены по метаданным и коду опубликованного wheel; прохождение GPU-проверки определяется результатом повторного запуска на VM. После успеха сохранить окружение: `python -m pip freeze > runtime-lock.txt`.

@@ -28,7 +28,7 @@ python -m pip install \
   'numpy>=2,<3' \
   torch==2.8.0 torchaudio==2.8.0 torchcodec==0.7.0 \
   faster-whisper==1.2.1 ctranslate2==4.6.0 \
-  pyannote.audio==4.0.1 transformers==4.57.1 \
+  pyannote.audio==4.0.3 transformers==4.57.1 \
   'huggingface-hub>=0.34,<1' 'accelerate>=1,<2'
 python -m pip check
 
