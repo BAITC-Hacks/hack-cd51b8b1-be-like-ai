@@ -181,7 +181,7 @@ class ExtractionAudit(StrictModel):
 
 class TaskMerge(StrictModel):
     task_ids: list[str] = Field(min_length=2, max_length=100)
-    reason: str = Field(min_length=1, max_length=500)
+    reason: str = Field(min_length=1, max_length=2000)
     task: GroundedTask
 
 

@@ -17,7 +17,7 @@ class Settings:
     max_duration_seconds: int = 3600
     llm_max_input_tokens: int = 20000
     llm_max_output_tokens: int = 6000
-    llm_timeout_seconds: int = field(default_factory=lambda: int(os.getenv('HACKALEM_LLM_TIMEOUT_SECONDS', '600')))
+    llm_timeout_seconds: int = field(default_factory=lambda: int(os.getenv('HACKALEM_LLM_TIMEOUT_SECONDS', '900')))
     audit_window_chars: int = 1600
     speaker_timeout_seconds: int = 60
     asr_language: str | None = field(default_factory=lambda: os.getenv('HACKALEM_ASR_LANGUAGE') or None)
