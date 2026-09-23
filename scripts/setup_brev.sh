@@ -36,7 +36,6 @@ python -m pip check
 cat > activate_hackalem.sh <<'ACTIVATE'
 task_env_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 source "$task_env_root/.venv/bin/activate"
-export HF_HOME="$task_env_root/.cache/huggingface"
 export HF_HUB_DISABLE_TELEMETRY=1
 export PYANNOTE_METRICS_ENABLED=0
 task_cuda_paths="$(python - <<'PY'
