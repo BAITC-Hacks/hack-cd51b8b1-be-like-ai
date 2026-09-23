@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from backend.extraction_audit import apply_audit
+from backend.extraction_audit import apply_audit, audit_input
 from backend.grounding import ground_task
 from backend.inference import TranscriptReferences
 from backend.processing import ProcessingError, align_words, materialize_extraction
@@ -172,6 +172,16 @@ def test_audit_may_also_check_visible_context_without_inflating_primary_coverage
     payload['checked_segment_ids'].append('T4')
     with pytest.raises(ValueError):
         apply_audit(Extraction(summary={}, tasks=[]), payload, refs, meeting, window)
+
+
+def test_auditor_only_receives_editable_tasks_with_visible_sources():
+    meeting = meeting_from_texts('Подготовить отчёт.', 'Проверить оборудование.')
+    refs = TranscriptReferences(meeting)
+    extraction = Extraction(summary={}, tasks=[task(meeting, None, 'Подготовить отчёт.'),
+        task(meeting, None, 'Проверить оборудование.', [meeting.segments[1].id])])
+    payload = audit_input(extraction, refs, meeting, next(refs.windows(1, context_segments=0)))
+    assert [item['task_id'] for item in payload['tasks']] == ['C1']
+    assert len(payload['other_tasks']) == 1 and 'task_id' not in payload['other_tasks'][0]
 
 
 def test_audit_correction_preserves_completion_criteria():

@@ -10,8 +10,8 @@ import time
 
 from .config import Settings
 from .deadlines import resolve_deadline
-from .extraction_audit import AUDIT_PROMPT, apply_audit
-from .grounding import canonical, ground_task, merge_exact_tasks, quote_sources, task_diagnostics
+from .extraction_audit import AUDIT_PROMPT, apply_audit, audit_input
+from .grounding import canonical, ground_task, merge_exact_tasks, quote_sources
 from .inference import GenerationMonitor, TranscriptReferences
 from .schemas import EvidenceQuote, Extraction, ExtractionAudit, GroundedExtraction, Meeting, Segment, Speaker, SpeakerIdentification, Task
 
@@ -152,6 +152,11 @@ deadline_text — исходная формулировка срока из ре
 Сохраняй последнее явно принятое уточнение срока. При неоднозначном конфликте ставь conflicting.
 Объединяй повторы поручений в итогах, сохраняя ссылки на источники. Не превращай предложения
 и условные действия в безусловно принятые поручения. Не выдавай предположения за факты.
+Просьба и согласие исполнителя выполнить её — одна задача: срок и результат из ответа
+дополняют просьбу. Предложение согласовать работу и следующая команда конкретному исполнителю
+согласовать её — тоже одна задача. Не создавай отдельную задачу для упомянутого коллеги.
+Не добавляй условие «если это продолжится» к уже принятому решению. Местоимения раскрывай
+по ближайшему контексту, не переноси предмет из предыдущей темы разговора.
 Разделяй результаты с разными сроками: смета за неделю и обучение за месяц — разные задачи.
 Если поручений нет, tasks=[]. Саммари отражает обсуждение, решения и явно обозначенные риски.
 Саммари должно сохранять ключевые проценты, показатели готовности, потери и длительность рисков,
@@ -167,9 +172,12 @@ SPEAKER_PROMPT = '''Сопоставь имена с уже разделённы
 Основания: собственное представление («Меня зовут ...») или явная передача слова по имени
 («Начнём с ...», «... вам слово») с непосредственным содержательным ответом другого голоса.
 Имя адресата относится к отвечающему, а не к ведущему, произносящему обращение.
+Если в одном голосе смешались вопросы ведущего и ответы адресата, пропусти этот голос:
+одного имени для него установить нельзя. Обращение и ответ внутри одного T не доказывают имя.
 Упоминание отсутствующего человека, цитата, поручение без ответа, реплика «она отсутствует»
 или ответ от лица другого человека не устанавливают личность говорящего. При сомнении пропусти имя.
 Укажи speaker_id отвечающего и evidence_segment_ids: обращение И ответ, либо самопредставление.
+Достаточно 1–3 подтверждающих реплик; не перечисляй все реплики голоса как доказательство.
 Используй только предоставленные идентификаторы S1/S2 и T1/T2. Не придумывай фамилии и имена.
 Имя можно привести к именительному падежу, сохраняя распознанное написание; не исправляй
 его на другое похожее имя. Подтверждённые человеком имена не меняй. Если оснований нет, speakers=[].
@@ -381,10 +389,7 @@ class LocalEngine:
         checked = 0
         windows = list(references.windows(self.settings.audit_window_chars))
         for number, window in enumerate(windows, 1):
-            data = {'speakers': references.data['speakers'], **window,
-                    'tasks': [{**references.encode_task(task, f'C{i + 1}'),
-                               'validation_issues': task_diagnostics(task, meeting)}
-                              for i, task in enumerate(extraction.tasks)]}
+            data = audit_input(extraction, references, meeting, window)
             audit_messages = [{'role': 'system', 'content': AUDIT_PROMPT + '\nJSON Schema:\n' +
                                json.dumps(ExtractionAudit.model_json_schema(), ensure_ascii=False)},
                               {'role': 'user', 'content': json.dumps(data, ensure_ascii=False)}]

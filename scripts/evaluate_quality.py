@@ -75,6 +75,12 @@ def main():
         turns = engine.diarize(wav)
         meeting.speakers, meeting.segments = align_words(asr, turns)
     (args.output_dir / 'transcript.json').write_text(meeting.model_dump_json(indent=2), encoding='utf-8')
+    # Cached experiments must not feed earlier model guesses back as identity evidence.
+    for i, speaker in enumerate(meeting.speakers, 1):
+        if speaker.identification != 'confirmed':
+            speaker.display_name = f'Спикер {i}'
+            speaker.identification = 'unknown'
+            speaker.evidence_segment_ids = []
     meeting.speakers = engine.identify_speakers(meeting)
     def partial(result):
         (args.output_dir / 'partial.json').write_text(result.model_dump_json(indent=2), encoding='utf-8')
