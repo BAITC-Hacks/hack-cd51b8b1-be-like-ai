@@ -312,11 +312,14 @@ input[type="checkbox"] {
 }
 .meeting-link strong {
   font-size: 11px;
-  font-weight: 550;
-  display: block;
-  white-space: nowrap;
+  font-weight: 600;
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  white-space: normal;
+  overflow-wrap: anywhere;
   overflow: hidden;
-  text-overflow: ellipsis;
 }
 .meeting-link small {
   display: flex;
@@ -1036,8 +1039,18 @@ input[type="checkbox"] {
 }
 .home-recent > button > strong {
   font-size: 12px;
-  font-weight: 550;
+  font-weight: 600;
+  line-height: 1.45;
   flex: 1;
+  min-width: 0;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow-wrap: anywhere;
+  overflow: hidden;
+}
+.home-recent > button > .badge {
+  flex-shrink: 0;
 }
 .home-recent > button > svg {
   color: #859a7b;
