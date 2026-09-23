@@ -7,7 +7,10 @@ from .deadlines import MONTHS, resolve_deadline
 
 
 def canonical(text):
-    return ' '.join(unicodedata.normalize('NFKC', text).casefold().replace('ё', 'е').split())
+    text = ' '.join(unicodedata.normalize('NFKC', text).casefold().replace('ё', 'е').split())
+    # Word timestamp alignment can leave a space before punctuation ("Иванов .").
+    # Normalize that formatting only after letters; never reinterpret numeric separators.
+    return re.sub(r'(?<=[^\W\d_])\s+([,.;:!?])', r'\1', text)
 
 
 def quote_sources(quote, segments, *, unique=False):

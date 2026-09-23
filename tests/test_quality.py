@@ -84,6 +84,15 @@ def test_quote_cannot_bridge_omitted_non_adjacent_text():
                         [meeting.segments[0].id, meeting.segments[-1].id]), meeting, require_quote=True)
 
 
+def test_alignment_space_before_sentence_punctuation_is_not_a_changed_quote():
+    text = 'Подготовить финансовое решение. Ответственный Тимур Балатович . Срок до 30 сентября.'
+    meeting = meeting_from_texts(text)
+    result = ground_task(task(meeting, 'до 30 сентября', text.replace('Балатович .', 'Балатович.')), meeting, require_quote=True)
+    assert result.evidence_segment_ids == [meeting.segments[0].id]
+    with pytest.raises(ValueError):
+        ground_task(task(meeting, None, text.replace('Балатович', 'Булатович')), meeting, require_quote=True)
+
+
 def test_audit_windows_cover_all_utterances_with_neighbour_context():
     meeting = meeting_from_texts(*['Реплика ' + str(i) + ' ' + 'текст ' * 15 for i in range(10)])
     windows = list(TranscriptReferences(meeting).windows(250))
