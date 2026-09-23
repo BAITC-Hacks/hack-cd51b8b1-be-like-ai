@@ -1,0 +1,1 @@
+"""HackAlem meeting assistant backend."""

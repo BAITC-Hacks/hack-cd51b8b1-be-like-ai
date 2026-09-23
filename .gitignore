@@ -1,0 +1,24 @@
+# Local environments, models, and meeting data
+.venv/
+venv/
+.env
+.env.*
+!.env.example
+.cache/
+models/
+data/
+uploads/
+exports/
+tmp/
+output/
+*.sqlite
+*.sqlite3
+*.db
+*.log
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+node_modules/
+dist/
+activate_hackalem.sh
