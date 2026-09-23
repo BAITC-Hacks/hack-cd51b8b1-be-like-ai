@@ -58,6 +58,7 @@ export interface Task {
   status: TaskStatus;
   is_overdue: boolean;
   evidence_segment_ids: string[];
+  evidence_quote?: string | null;
   needs_review: boolean;
   review_reasons: string[];
   reviewed: boolean;
@@ -82,6 +83,7 @@ export interface Meeting extends MeetingListItem {
   duration_seconds: number | null;
   stage: ProcessingStage;
   progress: number | null;
+  extraction_checked_segments?: number | null;
   error: { code: string; message: string } | null;
   speakers: Speaker[];
   segments: Segment[];

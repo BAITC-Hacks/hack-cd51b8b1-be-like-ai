@@ -310,7 +310,7 @@ export default function App() {
       }
     }
   }
-  function source(ids: string[]) {
+  function source(ids: string[], revealTranscript = true) {
     const found = ids
       .map((id) => meeting?.segments.find((segment) => segment.id === id))
       .filter((segment) => !!segment);
@@ -326,6 +326,7 @@ export default function App() {
         : "",
     );
     seek(found[0].start, found[0].id);
+    if (!revealTranscript) return;
     requestAnimationFrame(() =>
       requestAnimationFrame(() =>
         document
@@ -351,6 +352,17 @@ export default function App() {
     }
   }
   const ready = meeting?.status === "ready";
+  const showDraftTasks =
+    !!meeting && meeting.tasks.length > 0 &&
+    (meeting.status === "failed" ||
+      (meeting.status === "processing" && meeting.stage === "extract"));
+  const checkedSegments =
+    meeting && Number.isFinite(meeting.extraction_checked_segments)
+      ? Math.min(
+          meeting.segments.length,
+          Math.max(0, Math.floor(meeting.extraction_checked_segments ?? 0)),
+        )
+      : 0;
   const modelsReady = health && Object.values(health.models).every(Boolean);
   const needsReview =
     meeting?.tasks.filter((task) => task.needs_review).length || 0;
@@ -424,6 +436,43 @@ export default function App() {
         />
       </section>
     </aside>
+  ) : null;
+  const tasksPanel = meeting ? (
+    <section className="panel task-panel">
+      <div className="section-heading">
+        <div className="section-title">
+          <span className="section-icon"><ListChecks size={19} /></span>
+          <h2>Поручения</h2>
+          <span className="count-pill">{meeting.tasks.length}</span>
+        </div>
+        {ready && <span className="muted small">Проверьте перед отправкой</span>}
+      </div>
+      {!ready && (
+        <div className="draft-notice">
+          <strong>{meeting.status === "failed"
+            ? "Черновик — проверка не завершена"
+            : "Черновик, проверка продолжается"}</strong>
+          <p>Сохранённые поручения могут быть неполными. Редактирование,
+            подтверждение и экспорт доступны только после готовности протокола.</p>
+        </div>
+      )}
+      {ready && needsReview > 0 && (
+        <div className="review-notice">
+          <CircleHelp size={17} />
+          <span>Есть неоднозначности. Уточните исполнителей и сроки перед экспортом.</span>
+        </div>
+      )}
+      {sourceError && (
+        <div className="alert" role="alert">
+          <AlertCircle size={17} />
+          <span>{sourceError}</span>
+          <button className="icon-button" aria-label="Скрыть сообщение об источнике"
+            onClick={() => setSourceError("")}><X size={16} /></button>
+        </div>
+      )}
+      <TaskTable meeting={meeting} onTaskUpdated={updateTask}
+        onSource={source} onEditingChange={setTaskEditing} readOnly={!ready} />
+    </section>
   ) : null;
   return (
     <div className="app-shell">
@@ -787,6 +836,14 @@ export default function App() {
                           : stages.find((stage) => stage.id === meeting.stage)
                               ?.description}
                       </p>
+                      {meeting.status === "failed" &&
+                        meeting.error?.code === "COVERAGE_CHECK_FAILED" && (
+                          <p className="coverage-explanation">
+                            Проверка полноты не завершилась. В сохранённом
+                            черновике могут отсутствовать поручения. Полнота
+                            протокола пока не подтверждена.
+                          </p>
+                        )}
                       {meeting.status === "failed" && meeting.error && (
                         <code>{meeting.error.code}</code>
                       )}
@@ -819,8 +876,14 @@ export default function App() {
                       </ol>
                       {meeting.progress !== null && (
                         <div className="actual-progress">
-                          <progress max={100} value={meeting.progress} />
+                          <progress aria-label="Ход обработки" max={100} value={meeting.progress} />
                           <span>{meeting.progress}% · данные сервера</span>
+                        </div>
+                      )}
+                      {checkedSegments > 0 && (
+                        <div className="extraction-coverage">
+                          <strong>Проверено реплик: {checkedSegments} из {meeting.segments.length}</strong>
+                          <span>Охват обработки, не оценка точности.</span>
                         </div>
                       )}
                       <p className="field-hint">
@@ -830,7 +893,7 @@ export default function App() {
                       </p>
                     </section>
                   )}
-                  {!ready && meeting.segments.length > 0 && (
+                  {!ready && (meeting.segments.length > 0 || showDraftTasks) && (
                     <section
                       className="partial-results"
                       aria-label="Частичный результат"
@@ -839,17 +902,23 @@ export default function App() {
                         <FileText size={18} />
                         <div>
                           <strong>
-                            Частичный результат: транскрипт сохранён
+                            {meeting.segments.length > 0
+                              ? "Частичный результат: транскрипт сохранён"
+                              : "Частичный результат: поручения сохранены"}
                           </strong>
                           <p>
-                            Можно прослушать запись и прочитать доступные
-                            реплики. Поручения ещё не готовы; редактирование и
-                            экспорт будут доступны после успешного завершения
-                            обработки.
+                            Можно проверить доступные источники. Это сохранённая
+                            часть результата, а не готовый протокол. Редактирование и
+                            экспорт будут доступны после успешного завершения обработки.
                           </p>
                         </div>
                       </div>
-                      {recording}
+                      {showDraftTasks ? (
+                        <div className={meeting.segments.length > 0 ? "work-grid" : "draft-only"}>
+                          <div className="results-column">{tasksPanel}</div>
+                          {meeting.segments.length > 0 && recording}
+                        </div>
+                      ) : recording}
                     </section>
                   )}
                   {ready && (
@@ -942,50 +1011,7 @@ export default function App() {
                               </div>
                             </div>
                           </section>
-                          <section className="panel task-panel">
-                            <div className="section-heading">
-                              <div className="section-title">
-                                <span className="section-icon">
-                                  <ListChecks size={19} />
-                                </span>
-                                <h2>Поручения</h2>
-                                <span className="count-pill">
-                                  {meeting.tasks.length}
-                                </span>
-                              </div>
-                              <span className="muted small">
-                                Проверьте перед отправкой
-                              </span>
-                            </div>
-                            {needsReview > 0 && (
-                              <div className="review-notice">
-                                <CircleHelp size={17} />
-                                <span>
-                                  Есть неоднозначности. Уточните исполнителей и
-                                  сроки перед экспортом.
-                                </span>
-                              </div>
-                            )}
-                            {sourceError && (
-                              <div className="alert" role="alert">
-                                <AlertCircle size={17} />
-                                <span>{sourceError}</span>
-                                <button
-                                  className="icon-button"
-                                  aria-label="Скрыть сообщение об источнике"
-                                  onClick={() => setSourceError("")}
-                                >
-                                  <X size={16} />
-                                </button>
-                              </div>
-                            )}
-                            <TaskTable
-                              meeting={meeting}
-                              onTaskUpdated={updateTask}
-                              onSource={source}
-                              onEditingChange={setTaskEditing}
-                            />
-                          </section>
+                          {tasksPanel}
                         </div>
                         {recording}
                       </div>

@@ -39,9 +39,41 @@
 .partial-results {
   margin-top: 22px;
 }
-.partial-results .transcript-column {
+.partial-results > .transcript-column,
+.draft-only {
   max-width: 960px;
   margin: 0 auto;
+}
+.draft-notice {
+  margin: 0 17px 17px;
+  padding: 13px 15px;
+  border: 1px solid #e9ddbd;
+  border-radius: 8px;
+  background: #fcf8ed;
+  color: #766038;
+  font-size: 12px;
+  line-height: 1.7;
+}
+.draft-notice p {
+  margin-top: 5px;
+}
+.extraction-coverage {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 auto 20px;
+  color: #586f59;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.extraction-coverage span {
+  color: #6e7d68;
+  font-size: 12px;
+}
+.processing-card > .coverage-explanation {
+  max-width: 580px;
+  margin: 14px auto 0;
+  color: #8c5e43;
 }
 .partial-results .transcript-segments {
   max-height: none;

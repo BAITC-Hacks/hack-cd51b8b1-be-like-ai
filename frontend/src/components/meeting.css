@@ -2,6 +2,8 @@
 .transcript-section {
   color: var(--ink, #193730);
   min-width: 0;
+  container-type: inline-size;
+  container-name: meeting-panel;
 }
 .tasks-heading,
 .transcript-heading {
@@ -231,6 +233,94 @@
   font-size: 11px;
   font-weight: 650;
   white-space: nowrap;
+}
+.tasks-source[aria-expanded="true"] > svg {
+  transform: rotate(180deg);
+}
+.tasks-evidence-row > td {
+  padding: 0 !important;
+  background: #f8faf6;
+}
+.tasks-evidence {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 22px 24px;
+  overflow-wrap: anywhere;
+}
+.tasks-evidence h3 {
+  margin: 0 0 18px;
+  font-size: 15px;
+  font-weight: 650;
+}
+.tasks-evidence h4 {
+  margin: 0 0 8px;
+  font-size: 11px;
+  font-weight: 650;
+  color: var(--muted, #7a877e);
+}
+.tasks-evidence-quote {
+  margin-bottom: 20px;
+}
+.tasks-evidence-quote blockquote {
+  margin: 0;
+  padding: 9px 13px;
+  border-left: 3px solid #b5c7a6;
+  background: #edf3e8;
+  border-radius: 0 7px 7px 0;
+  white-space: pre-wrap;
+  font-size: 13px;
+  line-height: 1.75;
+}
+.tasks-evidence > .tasks-help {
+  margin: 0 0 17px;
+}
+.tasks-evidence-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.tasks-evidence-list > li {
+  padding: 12px 0;
+  border-top: 1px solid var(--line, #e2e8df);
+}
+.tasks-evidence-list > li > p {
+  margin: 7px 0 0;
+  white-space: pre-wrap;
+  font-size: 12px;
+  line-height: 1.75;
+}
+.tasks-evidence-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  font-size: 11px;
+  font-weight: 650;
+}
+.tasks-evidence-uncertain {
+  color: #a47a28;
+  font-size: 10px;
+  font-weight: 400;
+}
+.tasks-evidence-jump.button {
+  min-height: 28px;
+  padding: 4px 0;
+  margin-left: auto;
+  gap: 4px;
+  color: var(--green, #477c52);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.tasks-evidence-missing {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  color: #a47a28;
+  font-size: 11px;
+}
+.tasks-evidence-missing > svg {
+  flex-shrink: 0;
+  margin-top: 1px;
 }
 .tasks-icon-button.button,
 .transcript-icon-button.button {
@@ -793,7 +883,7 @@
     min-width: 100px;
   }
 }
-@media (max-width: 760px) {
+@container meeting-panel (max-width: 760px) {
   .tasks-heading,
   .transcript-heading {
     align-items: flex-start;
@@ -843,6 +933,7 @@
   .tasks-table .tasks-data-row > td {
     border: 0;
     padding: 7px 0;
+    max-width: none;
   }
   .tasks-table .tasks-title-cell {
     padding-top: 0;
@@ -888,6 +979,12 @@
   }
   .tasks-editor {
     padding: 19px 17px;
+  }
+  .tasks-evidence {
+    padding: 19px 17px;
+  }
+  .tasks-evidence-jump.button {
+    margin-left: 0;
   }
   .tasks-editor-fields {
     grid-template-columns: 1fr;

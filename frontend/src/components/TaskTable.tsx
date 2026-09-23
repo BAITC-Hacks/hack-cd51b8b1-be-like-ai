@@ -4,12 +4,14 @@ import {
   ArrowUpRight,
   Check,
   CheckCircle2,
+  ChevronDown,
   ClipboardList,
   Loader2,
   Pencil,
   X,
 } from "lucide-react";
 import { api } from "../lib/api";
+import { speakerIdentification } from "../lib/speakers";
 import {
   buildTaskPatch,
   changeTaskDraft,
@@ -23,8 +25,9 @@ import "./meeting.css";
 interface TaskTableProps {
   meeting: Meeting;
   onTaskUpdated: (task: Task) => void;
-  onSource: (ids: string[]) => void;
+  onSource: (ids: string[], revealTranscript?: boolean) => void;
   onEditingChange?: (editing: boolean) => void;
+  readOnly?: boolean;
 }
 
 type Filter = "all" | "review" | "open" | "done";
@@ -40,6 +43,13 @@ function dateLabel(value: string) {
   return parts.length === 3 ? `${parts[2]}.${parts[1]}.${parts[0]}` : value;
 }
 
+function timeLabel(seconds: number) {
+  const total = Math.max(0, Math.floor(seconds));
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  return `${hours > 0 ? `${hours}:` : ""}${String(minutes).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
+}
+
 function errorMessage(error: unknown) {
   return error instanceof Error
     ? error.message
@@ -51,8 +61,11 @@ export function TaskTable({
   onTaskUpdated,
   onSource,
   onEditingChange,
+  readOnly = false,
 }: TaskTableProps) {
+  const editable = !readOnly && meeting.status === "ready";
   const [filter, setFilter] = useState<Filter>("all");
+  const [sourceTaskId, setSourceTaskId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editor, setEditor] = useState<TaskEditor | null>(null);
   const draft = editor?.draft;
@@ -71,14 +84,25 @@ export function TaskTable({
     setError("");
     setNotice("");
     setFilter("all");
+    setSourceTaskId(null);
     return () => {
       requestVersion.current += 1;
     };
   }, [meeting.id]);
 
   useEffect(() => {
-    editingCallback.current?.(editingId !== null);
-  }, [editingId]);
+    if (editable) return;
+    requestVersion.current += 1;
+    setEditingId(null);
+    setEditor(null);
+    setSaving(false);
+    setError("");
+    setNotice("");
+  }, [editable]);
+
+  useEffect(() => {
+    editingCallback.current?.(editable && editingId !== null);
+  }, [editingId, editable]);
 
   useEffect(() => () => editingCallback.current?.(false), []);
 
@@ -103,9 +127,15 @@ export function TaskTable({
       (filter === "open" && task.status !== "done") ||
       (filter === "done" && task.status === "done"),
   );
-  const segmentIds = new Set(meeting.segments.map((segment) => segment.id));
+  const segmentsById = new Map(
+    meeting.segments.map((segment) => [segment.id, segment]),
+  );
+  const speakersById = new Map(
+    meeting.speakers.map((speaker) => [speaker.id, speaker]),
+  );
 
   function edit(task: Task) {
+    if (!editable) return;
     setEditingId(task.id);
     setEditor(startTaskEdit(task));
     setError("");
@@ -119,6 +149,7 @@ export function TaskTable({
   }
 
   function change<K extends keyof TaskDraft>(key: K, value: TaskDraft[K]) {
+    if (!editable) return;
     setEditor((current) =>
       current ? changeTaskDraft(current, key, value) : current,
     );
@@ -127,7 +158,7 @@ export function TaskTable({
 
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!editor || !draft || !editingId || saving) return;
+    if (!editable || !editor || !draft || !editingId || saving) return;
     if (!draft.title.trim()) {
       setError("Укажите название поручения.");
       return;
@@ -155,7 +186,7 @@ export function TaskTable({
   }
 
   function renderEditor(task: Task) {
-    if (!draft || task.id !== editingId) return null;
+    if (!editable || !draft || task.id !== editingId) return null;
     const fieldId = (name: string) => `task-${task.id}-${name}`;
     return (
       <tr className="tasks-editor-row" key={`${task.id}-editor`}>
@@ -263,9 +294,9 @@ export function TaskTable({
                   {meeting.speakers.map((speaker) => (
                     <option key={speaker.id} value={speaker.id}>
                       {speaker.display_name} · {speaker.label}
-                      {speaker.identification === "suggested"
-                        ? " (предположение)"
-                        : speaker.identification === "unknown"
+                      {speakerIdentification(speaker) === "suggested"
+                        ? " (имя предложено ИИ)"
+                        : speakerIdentification(speaker) === "unknown"
                           ? " (имя не подтверждено)"
                           : ""}
                     </option>
@@ -360,6 +391,91 @@ export function TaskTable({
     );
   }
 
+  function renderSource(task: Task) {
+    if (task.id !== sourceTaskId) return null;
+    const evidenceIds = [...new Set(task.evidence_segment_ids)];
+    return (
+      <tr className="tasks-evidence-row" key={`${task.id}-evidence`}>
+        <td colSpan={6}>
+          <section
+            className="tasks-evidence"
+            id={`task-${task.id}-evidence`}
+            aria-label={`Источник поручения: ${task.title}`}
+          >
+            <h3>Основание поручения</h3>
+            {task.evidence_quote?.trim() ? (
+              <div className="tasks-evidence-quote">
+                <h4>Цитата, выделенная ИИ</h4>
+                <blockquote>{task.evidence_quote}</blockquote>
+                <p className="tasks-help">
+                  Сверьте цитату с исходными репликами и аудио.
+                </p>
+              </div>
+            ) : (
+              <p className="tasks-help">
+                Отдельная цитата не сохранена. Проверьте исходные реплики.
+              </p>
+            )}
+            <h4>Исходные реплики</h4>
+            {evidenceIds.length ? (
+              <ol className="tasks-evidence-list">
+                {evidenceIds.map((id, index) => {
+                  const segment = segmentsById.get(id);
+                  if (!segment)
+                    return (
+                      <li className="tasks-evidence-missing" key={id}>
+                        <AlertCircle size={15} aria-hidden="true" />
+                        Реплика {index + 1} недоступна в сохранённой расшифровке.
+                      </li>
+                    );
+                  const speaker = segment.speaker_id
+                    ? speakersById.get(segment.speaker_id)
+                    : null;
+                  const identification = speaker
+                    ? speakerIdentification(speaker)
+                    : "unknown";
+                  return (
+                    <li key={id}>
+                      <div className="tasks-evidence-meta">
+                        <span>
+                          {speaker?.display_name || "Говорящий не определён"}
+                        </span>
+                        {speaker && identification === "suggested" && (
+                          <span className="tasks-evidence-uncertain">
+                            Имя предложено ИИ
+                          </span>
+                        )}
+                        {speaker && identification === "unknown" && (
+                          <span className="tasks-evidence-uncertain">
+                            Имя не установлено
+                          </span>
+                        )}
+                        <button
+                          type="button"
+                          className="button button-ghost tasks-evidence-jump"
+                          onClick={() => onSource([id])}
+                          aria-label={`К реплике ${index + 1} и аудио ${timeLabel(segment.start)}: ${task.title}`}
+                        >
+                          {timeLabel(segment.start)} · К аудио
+                          <ArrowUpRight size={14} aria-hidden="true" />
+                        </button>
+                      </div>
+                      <p>{segment.text}</p>
+                    </li>
+                  );
+                })}
+              </ol>
+            ) : (
+              <p className="tasks-help">
+                Связь с репликами не сохранена. Переход к фрагменту аудио недоступен.
+              </p>
+            )}
+          </section>
+        </td>
+      </tr>
+    );
+  }
+
   return (
     <section className="tasks-section" aria-label="Поручения">
       <div className="tasks-filters" role="group" aria-label="Фильтр поручений">
@@ -417,8 +533,16 @@ export function TaskTable({
             <tbody>
               {visibleTasks.flatMap((task, index) => {
                 const hasSource = task.evidence_segment_ids.some((id) =>
-                  segmentIds.has(id),
+                  segmentsById.has(id),
                 );
+                const assigneeSpeaker = task.assignee_speaker_id
+                  ? speakersById.get(task.assignee_speaker_id)
+                  : undefined;
+                const assigneeIdentification =
+                  assigneeSpeaker &&
+                  task.assignee_name === assigneeSpeaker.display_name
+                    ? speakerIdentification(assigneeSpeaker)
+                    : null;
                 return [
                   <tr
                     key={task.id}
@@ -451,7 +575,7 @@ export function TaskTable({
                           )}
                         </div>
                       )}
-                      {task.reviewed && (
+                      {editable && task.reviewed && (
                         <span className="tasks-reviewed">
                           <CheckCircle2 size={12} aria-hidden="true" />
                           Проверено человеком
@@ -468,6 +592,16 @@ export function TaskTable({
                       </span>
                       {task.assignee_type === "department" && (
                         <span className="tasks-cell-detail">Подразделение</span>
+                      )}
+                      {assigneeIdentification === "suggested" && (
+                        <span className="tasks-cell-detail tasks-evidence-uncertain">
+                          Имя предложено ИИ
+                        </span>
+                      )}
+                      {assigneeIdentification === "unknown" && (
+                        <span className="tasks-cell-detail tasks-evidence-uncertain">
+                          Имя не установлено
+                        </span>
                       )}
                     </td>
                     <td data-label="Срок">
@@ -502,14 +636,22 @@ export function TaskTable({
                       </span>
                     </td>
                     <td data-label="Источник">
-                      {hasSource ? (
+                      {hasSource || task.evidence_quote?.trim() ? (
                         <button
                           type="button"
                           className="button button-ghost tasks-source"
-                          onClick={() => onSource(task.evidence_segment_ids)}
+                          onClick={() => {
+                            const opening = sourceTaskId !== task.id;
+                            setSourceTaskId(opening ? task.id : null);
+                            if (opening && hasSource)
+                              onSource(task.evidence_segment_ids, false);
+                          }}
                           aria-label={`Показать источник поручения: ${task.title}`}
+                          aria-expanded={sourceTaskId === task.id}
+                          aria-controls={`task-${task.id}-evidence`}
                         >
-                          Реплика <ArrowUpRight size={15} aria-hidden="true" />
+                          {hasSource ? "Реплики" : "Цитата"}
+                          <ChevronDown size={15} aria-hidden="true" />
                         </button>
                       ) : (
                         <span className="tasks-no-source">
@@ -525,6 +667,7 @@ export function TaskTable({
                         className="button button-ghost tasks-icon-button"
                         onClick={() => edit(task)}
                         disabled={
+                          !editable ||
                           saving ||
                           (editingId !== null && editingId !== task.id)
                         }
@@ -535,6 +678,7 @@ export function TaskTable({
                       </button>
                     </td>
                   </tr>,
+                  renderSource(task),
                   renderEditor(task),
                 ];
               })}

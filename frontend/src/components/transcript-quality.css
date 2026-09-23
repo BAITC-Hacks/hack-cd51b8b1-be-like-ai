@@ -1,0 +1,12 @@
+.transcript-check-name {
+  margin-top: 10px;
+  padding: 7px 9px;
+  font-size: 11px;
+  max-width: 100%;
+  white-space: normal;
+  text-align: left;
+}
+
+.transcript-identification {
+  line-height: 1.4;
+}

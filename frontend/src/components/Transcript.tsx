@@ -11,8 +11,10 @@ import {
   X,
 } from "lucide-react";
 import { api } from "../lib/api";
+import { isTechnicalSpeakerName, speakerIdentification } from "../lib/speakers";
 import type { Meeting, Segment, Speaker } from "../types";
 import "./meeting.css";
+import "./transcript-quality.css";
 
 interface TranscriptProps {
   meeting: Meeting;
@@ -25,7 +27,7 @@ interface TranscriptProps {
 
 const identificationLabels: Record<Speaker["identification"], string> = {
   unknown: "Имя не установлено",
-  suggested: "Предположение модели",
+  suggested: "Имя предложено ИИ",
   confirmed: "Имя подтверждено",
 };
 
@@ -163,7 +165,11 @@ export function Transcript({
       if (requestVersion.current !== version) return;
       onSpeakerUpdated(updated);
       setEditingSpeakerId(null);
-      setNotice("Имя говорящего сохранено.");
+      setNotice(
+        isTechnicalSpeakerName(updated.display_name)
+          ? "Обозначение говорящего сохранено. Имя не установлено."
+          : "Имя говорящего сохранено.",
+      );
     } catch (saveError) {
       if (requestVersion.current === version)
         setError(
@@ -180,102 +186,130 @@ export function Transcript({
     <section className="transcript-section" aria-label="Расшифровка">
       {meeting.speakers.length > 0 && (
         <div className="transcript-speakers" aria-label="Говорящие в записи">
-          {meeting.speakers.map((speaker, index) => (
-            <div className="transcript-speaker-card" key={speaker.id}>
-              <div className="transcript-speaker-card-top">
-                <span
-                  className={`transcript-avatar transcript-color-${index % 5}`}
-                  aria-hidden="true"
-                >
-                  {String(index + 1).padStart(2, "0")}
-                </span>
-                <div className="transcript-speaker-info">
-                  <strong>{speaker.display_name}</strong>
+          {meeting.speakers.map((speaker, index) => {
+            const identification = speakerIdentification(speaker);
+            const technicalName = isTechnicalSpeakerName(speaker.display_name);
+            return (
+              <div className="transcript-speaker-card" key={speaker.id}>
+                <div className="transcript-speaker-card-top">
                   <span
-                    className={`transcript-identification transcript-identification-${speaker.identification}`}
+                    className={`transcript-avatar transcript-color-${index % 5}`}
+                    aria-hidden="true"
                   >
-                    {speaker.identification === "confirmed" && (
-                      <CheckCircle2 size={11} aria-hidden="true" />
-                    )}
-                    {identificationLabels[speaker.identification]}
+                    {String(index + 1).padStart(2, "0")}
                   </span>
+                  <div className="transcript-speaker-info">
+                    <strong>{speaker.display_name}</strong>
+                    <span
+                      className={`transcript-identification transcript-identification-${identification}`}
+                    >
+                      {identification === "confirmed" && (
+                        <CheckCircle2 size={11} aria-hidden="true" />
+                      )}
+                      {technicalName
+                        ? "Техническая метка · имя не установлено"
+                        : identificationLabels[identification]}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    className="button button-ghost transcript-icon-button"
+                    onClick={() => startRenaming(speaker)}
+                    disabled={
+                      !editable ||
+                      saving ||
+                      (editingSpeakerId !== null &&
+                        editingSpeakerId !== speaker.id)
+                    }
+                    aria-expanded={editingSpeakerId === speaker.id}
+                    aria-label={`Изменить имя говорящего: ${speaker.display_name}`}
+                  >
+                    <Pencil size={14} />
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  className="button button-ghost transcript-icon-button"
-                  onClick={() => startRenaming(speaker)}
-                  disabled={
-                    !editable ||
-                    saving ||
-                    (editingSpeakerId !== null &&
-                      editingSpeakerId !== speaker.id)
-                  }
-                  aria-expanded={editingSpeakerId === speaker.id}
-                  aria-label={`Изменить имя говорящего: ${speaker.display_name}`}
-                >
-                  <Pencil size={14} />
-                </button>
-              </div>
-              {editable && editingSpeakerId === speaker.id && (
-                <form className="transcript-name-form" onSubmit={saveSpeaker}>
-                  <label htmlFor={`speaker-name-${speaker.id}`}>
-                    Имя говорящего
-                  </label>
-                  <input
-                    className="input"
-                    id={`speaker-name-${speaker.id}`}
-                    value={name}
-                    onChange={(event) => {
-                      setName(event.target.value);
-                      setError("");
-                    }}
-                    required
-                    disabled={saving}
-                    autoFocus
-                  />
-                  <p className="transcript-name-help">
-                    Имя обновится в расшифровке. Ответственные поручений
-                    задаются отдельно.
-                  </p>
-                  {error && (
-                    <p className="transcript-save-error" role="alert">
-                      <AlertCircle size={14} aria-hidden="true" />
-                      {error}
-                    </p>
-                  )}
-                  <div className="transcript-name-actions">
+                {identification === "suggested" &&
+                  editingSpeakerId !== speaker.id && (
                     <button
                       type="button"
-                      className="button button-secondary"
-                      disabled={saving}
-                      onClick={() => {
-                        setEditingSpeakerId(null);
+                      className="button button-secondary transcript-check-name"
+                      onClick={() => startRenaming(speaker)}
+                      disabled={!editable || saving || editingSpeakerId !== null}
+                      aria-label={`Подтвердить или исправить имя: ${speaker.display_name}`}
+                      aria-expanded={false}
+                    >
+                      Подтвердить или исправить
+                    </button>
+                  )}
+                {editable && editingSpeakerId === speaker.id && (
+                  <form className="transcript-name-form" onSubmit={saveSpeaker}>
+                    <label htmlFor={`speaker-name-${speaker.id}`}>
+                      Имя говорящего
+                    </label>
+                    <input
+                      className="input"
+                      id={`speaker-name-${speaker.id}`}
+                      value={name}
+                      onChange={(event) => {
+                        setName(event.target.value);
                         setError("");
                       }}
-                    >
-                      Отмена
-                    </button>
-                    <button
-                      type="submit"
-                      className="button button-primary"
+                      required
                       disabled={saving}
-                    >
-                      {saving ? (
-                        <Loader2
-                          size={14}
-                          className="transcript-spinning"
-                          aria-hidden="true"
-                        />
-                      ) : (
-                        <Check size={14} aria-hidden="true" />
+                      autoFocus
+                    />
+                    <p className="transcript-name-help">
+                      {identification === "suggested" && (
+                        <>
+                          Проверьте предложенное имя и при необходимости исправьте его.{" "}
+                        </>
                       )}
-                      {saving ? "Сохраняем…" : "Сохранить"}
-                    </button>
-                  </div>
-                </form>
-              )}
-            </div>
-          ))}
+                      Имя обновится в расшифровке и связанных с этим говорящим
+                      поручениях. Остальные ответственные задаются отдельно.
+                    </p>
+                    {error && (
+                      <p className="transcript-save-error" role="alert">
+                        <AlertCircle size={14} aria-hidden="true" />
+                        {error}
+                      </p>
+                    )}
+                    <div className="transcript-name-actions">
+                      <button
+                        type="button"
+                        className="button button-secondary"
+                        disabled={saving}
+                        onClick={() => {
+                          setEditingSpeakerId(null);
+                          setError("");
+                        }}
+                      >
+                        Отмена
+                      </button>
+                      <button
+                        type="submit"
+                        className="button button-primary"
+                        disabled={saving}
+                      >
+                        {saving ? (
+                          <Loader2
+                            size={14}
+                            className="transcript-spinning"
+                            aria-hidden="true"
+                          />
+                        ) : (
+                          <Check size={14} aria-hidden="true" />
+                        )}
+                        {saving
+                          ? "Сохраняем…"
+                          : identification === "suggested"
+                            ? "Подтвердить имя"
+                            : "Сохранить"}
+                      </button>
+                    </div>
+                  </form>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
       <div className="transcript-search-row">
@@ -394,12 +428,12 @@ export function Transcript({
                             ? "Говорящий не найден"
                             : "Неизвестный голос")}
                       </span>
-                      {speaker?.identification === "suggested" && (
+                      {speaker && speakerIdentification(speaker) === "suggested" && (
                         <span className="transcript-uncertain">
-                          предположение
+                          Имя предложено ИИ
                         </span>
                       )}
-                      {(!speaker || speaker.identification === "unknown") && (
+                      {(!speaker || speakerIdentification(speaker) === "unknown") && (
                         <span className="transcript-uncertain">
                           имя не установлено
                         </span>
