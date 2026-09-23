@@ -152,6 +152,11 @@ class GroundedTask(ExtractedTask):
     evidence_quote: str = Field(min_length=1, max_length=1600)
 
 
+class EvidenceQuote(StrictModel):
+    evidence_quote: str = Field(min_length=1, max_length=1600)
+    evidence_segment_ids: list[str] = Field(min_length=1, max_length=30)
+
+
 class GroundedExtraction(Extraction):
     tasks: list[GroundedTask] = Field(max_length=100)
 

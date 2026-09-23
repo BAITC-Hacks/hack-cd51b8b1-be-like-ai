@@ -13,7 +13,7 @@ sys.path.insert(0, str(ROOT))
 from backend.config import Settings
 from backend.exports import export_pdf, export_docx
 from backend.processing import LocalEngine, align_words
-from backend.schemas import new_id
+from backend.schemas import Meeting, new_id
 from backend.storage import Store
 
 
@@ -23,7 +23,9 @@ def main():
     parser.add_argument('--data-dir', type=Path, required=True)
     parser.add_argument('--model-dir', type=Path, required=True)
     parser.add_argument('--output-dir', type=Path, required=True)
-    parser.add_argument('--retranscribe', action='store_true')
+    input_mode = parser.add_mutually_exclusive_group()
+    input_mode.add_argument('--retranscribe', action='store_true')
+    input_mode.add_argument('--transcript-json', type=Path, help='Reuse transcript.json from an earlier run of the same meeting')
     parser.add_argument('--save-as-new', action='store_true')
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
@@ -31,7 +33,9 @@ def main():
     settings = Settings(data_dir=args.data_dir, model_dir=args.model_dir)
     store = Store(args.data_dir / 'meetings.sqlite3')
     original = store.get(args.meeting)
-    meeting = original.model_copy(deep=True)
+    meeting = Meeting.model_validate_json(args.transcript_json.read_text(encoding='utf-8')) if args.transcript_json else original.model_copy(deep=True)
+    if meeting.id != original.id:
+        raise SystemExit('Cached transcript belongs to a different meeting')
     meeting.tasks = []
     meeting.extraction_checked_segments = 0
     (args.output_dir / 'before.json').write_text(original.model_dump_json(indent=2), encoding='utf-8')
@@ -68,7 +72,8 @@ def main():
     (args.output_dir / 'protocol.docx').write_bytes(export_docx(result))
     metrics = {'meeting_id': result.id, 'tasks': len(result.tasks), 'segments': len(result.segments),
                'checked_segments': result.extraction_checked_segments, 'elapsed_seconds': round(time.monotonic() - started, 1),
-               'retranscribed': args.retranscribe, 'accuracy': 'Requires human comparison; not inferred from task count.'}
+               'retranscribed': args.retranscribe, 'cached_transcript': bool(args.transcript_json),
+               'accuracy': 'Requires human comparison; not inferred from task count.'}
     (args.output_dir / 'run.json').write_text(json.dumps(metrics, indent=2), encoding='utf-8')
     print(json.dumps(metrics), flush=True)
 

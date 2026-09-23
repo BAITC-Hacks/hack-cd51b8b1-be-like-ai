@@ -115,6 +115,20 @@ def test_independent_audit_recovers_obligation_missed_by_first_pass():
     assert result.summary.decisions and 'Разобраться' in result.summary.decisions[0]
 
 
+def test_quote_repair_is_small_and_keeps_the_same_generation_budget():
+    text = 'Алия, подготовьте финансовое решение по проекту к пятнице.'
+    meeting = meeting_from_texts(text)
+    initial = {'summary': {}, 'tasks': [{'title': 'Подготовить финансовое решение',
+        'evidence_quote': 'Алея, подготовьте финансовое решение по проекту к пятнице.', 'evidence_segment_ids': ['T1']}], 'speakers': []}
+    repair = {'evidence_quote': 'подготовьте финансовое решение по проекту к пятнице.', 'evidence_segment_ids': ['T1']}
+    audit = {'checked_segment_ids': ['T1'], 'additions': [], 'corrections': [], 'removals': []}
+    engine = ScriptedEngine([json.dumps(initial), json.dumps(repair), json.dumps(audit)])
+    result = engine.extract(meeting)
+    assert len(result.tasks) == 1 and result.tasks[0].evidence_quote == repair['evidence_quote']
+    assert engine.calls[1]['max_tokens'] == 500
+    assert len({call['deadline'] for call in engine.calls}) == 1
+
+
 def test_incomplete_audit_never_reports_completed_coverage():
     meeting = meeting_from_texts('Айдана, подготовьте отчёт.', 'Срок до пятницы.')
     first = {'summary': {}, 'tasks': [], 'speakers': []}
