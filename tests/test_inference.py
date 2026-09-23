@@ -34,7 +34,12 @@ def task_payload():
         'title': 'Подготовить отчёт', 'assignee_name': 'Батагус Нурлановна',
         'assignee_type': 'person', 'assignee_speaker_id': 'S2',
         'deadline_text': 'до пятницы', 'deadline_kind': 'relative', 'evidence_segment_ids': ['T2'],
+        'evidence_quote': 'Подготовлю отчёт до пятницы.',
     }]}
+
+
+def audit_payload():
+    return {'checked_segment_ids': ['T1', 'T2'], 'additions': [], 'corrections': [], 'removals': []}
 
 
 def test_short_model_references_roundtrip_without_changing_public_ids():
@@ -88,6 +93,22 @@ def test_human_confirmed_name_is_never_overwritten_by_model():
     assert meeting.speakers[1].identification == 'confirmed'
 
 
+def test_generic_voice_label_is_not_an_identified_person():
+    meeting = sample_meeting()
+    apply_speaker_suggestions(meeting, [SpeakerSuggestion(speaker_id=meeting.speakers[1].id,
+        display_name='Спикер 2', evidence_segment_ids=[meeting.segments[1].id])])
+    assert meeting.speakers[1].identification == 'unknown'
+
+
+def test_one_bad_name_does_not_discard_other_grounded_suggestions():
+    meeting = sample_meeting()
+    payload = name_payload()
+    payload['speakers'].append({'speaker_id': 'S1', 'display_name': 'Неверное имя', 'evidence_segment_ids': ['T2']})
+    speakers = ScriptedEngine([json.dumps(payload)]).identify_speakers(meeting)
+    assert speakers[1].display_name == 'Батагус Нурлановна'
+    assert speakers[0].identification == 'unknown'
+
+
 def test_generation_monitor_reports_real_token_count_and_stops_on_deadline(monkeypatch):
     now = [100.]
     monkeypatch.setattr('backend.inference.time.monotonic', lambda: now[0])
@@ -121,7 +142,7 @@ class ScriptedEngine(LocalEngine):
 
 def test_json_repair_shares_one_time_budget_and_preserves_caller_meeting():
     meeting = sample_meeting()
-    engine = ScriptedEngine(['not JSON', json.dumps(task_payload())])
+    engine = ScriptedEngine(['not JSON', json.dumps(task_payload()), json.dumps(audit_payload())])
     result = engine.extract(meeting)
     assert len(result.tasks) == 1 and meeting.tasks == []
     assert engine.calls[0]['deadline'] == engine.calls[1]['deadline']
@@ -167,7 +188,7 @@ def test_worker_persists_names_and_transcript_before_task_extraction(tmp_path):
             apply_speaker_suggestions(current, suggestions)
             return current.speakers
 
-        def extract(self, current):
+        def extract(self, current, on_partial=None):
             stored = store.get(current.id)
             assert stored.stage == 'extract' and stored.status == 'processing'
             assert stored.speakers[1].display_name == 'Батагус Нурлановна'
@@ -186,7 +207,7 @@ def test_retry_uses_cached_transcript_without_loading_asr_or_diarization(tmp_pat
     meeting.status, meeting.stage = 'failed', 'extract'
     store.create(meeting, tmp_path / 'audio.wav')
     assert choose_meeting(store).id == meeting.id
-    engine = ScriptedEngine([json.dumps(name_payload()), json.dumps(task_payload())])
+    engine = ScriptedEngine([json.dumps(name_payload()), json.dumps(task_payload()), json.dumps(audit_payload())])
     Worker(store, engine).extract_saved(meeting.id)
     result = store.get(meeting.id)
     assert result.status == 'ready' and result.error is None

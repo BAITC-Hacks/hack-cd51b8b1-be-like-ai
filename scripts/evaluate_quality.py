@@ -1,0 +1,77 @@
+"""Real GPU evaluation against a saved meeting; preserves the original by default."""
+import argparse
+from datetime import datetime, timezone
+import json
+import logging
+from pathlib import Path
+import sys
+import time
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+from backend.config import Settings
+from backend.exports import export_pdf, export_docx
+from backend.processing import LocalEngine, align_words
+from backend.schemas import new_id
+from backend.storage import Store
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--meeting', required=True)
+    parser.add_argument('--data-dir', type=Path, required=True)
+    parser.add_argument('--model-dir', type=Path, required=True)
+    parser.add_argument('--output-dir', type=Path, required=True)
+    parser.add_argument('--retranscribe', action='store_true')
+    parser.add_argument('--save-as-new', action='store_true')
+    args = parser.parse_args()
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
+    args.output_dir.mkdir(parents=True, exist_ok=True)
+    settings = Settings(data_dir=args.data_dir, model_dir=args.model_dir)
+    store = Store(args.data_dir / 'meetings.sqlite3')
+    original = store.get(args.meeting)
+    meeting = original.model_copy(deep=True)
+    meeting.tasks = []
+    meeting.extraction_checked_segments = 0
+    (args.output_dir / 'before.json').write_text(original.model_dump_json(indent=2), encoding='utf-8')
+
+    class TracedEngine(LocalEngine):
+        sequence = 0
+
+        def _generate(self, messages, **kwargs):
+            self.sequence += 1
+            # Traces stay in the private output directory, never in server console logs.
+            answer = super()._generate(messages, **kwargs)
+            (args.output_dir / f'model-{self.sequence:02}.txt').write_text(answer, encoding='utf-8')
+            return answer
+
+    started = time.monotonic()
+    engine = TracedEngine(settings)
+    if args.retranscribe:
+        wav, meeting.duration_seconds = engine.decode(store.media_path(original.id))
+        asr = engine.transcribe(wav)
+        turns = engine.diarize(wav)
+        meeting.speakers, meeting.segments = align_words(asr, turns)
+    (args.output_dir / 'transcript.json').write_text(meeting.model_dump_json(indent=2), encoding='utf-8')
+    meeting.speakers = engine.identify_speakers(meeting)
+    def partial(result):
+        (args.output_dir / 'partial.json').write_text(result.model_dump_json(indent=2), encoding='utf-8')
+    result = engine.extract(meeting, on_partial=partial)
+    result.status, result.stage, result.progress, result.error = 'ready', 'complete', 100., None
+    if args.save_as_new:
+        result.id, result.created_at = new_id(), datetime.now(timezone.utc)
+        result.title = original.title[:260] + ' — проверка качества'
+        store.create(result, store.media_path(original.id))
+    (args.output_dir / 'result.json').write_text(result.model_dump_json(indent=2), encoding='utf-8')
+    (args.output_dir / 'protocol.pdf').write_bytes(export_pdf(result))
+    (args.output_dir / 'protocol.docx').write_bytes(export_docx(result))
+    metrics = {'meeting_id': result.id, 'tasks': len(result.tasks), 'segments': len(result.segments),
+               'checked_segments': result.extraction_checked_segments, 'elapsed_seconds': round(time.monotonic() - started, 1),
+               'retranscribed': args.retranscribe, 'accuracy': 'Requires human comparison; not inferred from task count.'}
+    (args.output_dir / 'run.json').write_text(json.dumps(metrics, indent=2), encoding='utf-8')
+    print(json.dumps(metrics), flush=True)
+
+
+if __name__ == '__main__':
+    main()

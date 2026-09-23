@@ -27,7 +27,7 @@ class FakeEngine:
     def diarize(self, path):
         return [(0., 3., 'SPEAKER_00')]
 
-    def extract(self, meeting):
+    def extract(self, meeting, on_partial=None):
         meeting.summary = Summary(overview='Обсуждён отчёт. Құжатты дайындау.')
         meeting.tasks = [Task(title='Подготовить отчёт', assignee_name='Участник 2', assignee_type='person',
                               deadline_text='к пятнице', deadline_kind='relative',

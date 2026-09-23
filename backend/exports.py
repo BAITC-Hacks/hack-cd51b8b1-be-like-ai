@@ -51,7 +51,7 @@ def export_pdf(meeting: Meeting) -> bytes:
     from reportlab.lib.units import mm
     from reportlab.pdfbase import pdfmetrics
     from reportlab.pdfbase.ttfonts import TTFont
-    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak, LongTable, TableStyle, KeepTogether
     regular, bold = font_paths()
     if 'MeetingSans' not in pdfmetrics.getRegisteredFontNames():
         pdfmetrics.registerFont(TTFont('MeetingSans', regular))
@@ -62,6 +62,9 @@ def export_pdf(meeting: Meeting) -> bytes:
                              leading=18, spaceBefore=14, spaceAfter=8, keepWithNext=True)
     title = ParagraphStyle('Title', parent=heading, fontSize=20, leading=26, spaceBefore=0)
     muted = ParagraphStyle('Muted', parent=base, fontSize=9, leading=13, textColor=colors.HexColor('#475569'))
+    cell = ParagraphStyle('Cell', parent=base, fontSize=8.5, leading=11.5, spaceAfter=3)
+    cell_muted = ParagraphStyle('CellMuted', parent=cell, fontSize=8, leading=10.5, textColor=colors.HexColor('#475569'))
+    transcript_heading = ParagraphStyle('TranscriptHeading', parent=heading, fontSize=10, leading=13, spaceBefore=8, spaceAfter=3)
     story = []
     def add(text, style=base):
         story.append(Paragraph(escape(str(text)).replace('\n', '<br/>'), style))
@@ -71,33 +74,56 @@ def export_pdf(meeting: Meeting) -> bytes:
     add('Проект подготовлен ИИ. Поручения и неоднозначные сведения подлежат проверке секретарём.', muted)
     add('Краткое содержание', heading)
     add(meeting.summary.overview or 'Содержание не сформировано.')
-    for caption, items in [('Решения', meeting.summary.decisions), ('Риски и открытые вопросы', meeting.summary.risks)]:
+    for caption, items in [('Риски и открытые вопросы', meeting.summary.risks)]:
         if items:
             add(caption, heading)
             for item in items:
                 add('• ' + item)
-    add('Поручения', heading)
     segment_map = {segment.id: segment for segment in meeting.segments}
     if not meeting.tasks:
+        add('Поручения (0)', heading)
         add('Поручения в записи не обнаружены.')
-    for index, task in enumerate(meeting.tasks, 1):
-        add(f'{index}. {task.title}', heading)
-        if task.description:
-            add(task.description)
-        for line in task_lines(task):
-            add(line)
-        evidence = [segment_map[sid] for sid in task.evidence_segment_ids if sid in segment_map]
-        if evidence:
-            add('Источники: ' + ', '.join(f'{stamp(s.start)}–{stamp(s.end)}' for s in evidence), muted)
-        story.append(Spacer(1, 3 * mm))
+    if meeting.tasks:
+        rows = [[Paragraph(f'Поручения ({len(meeting.tasks)})', heading), '', '', ''],
+                [Paragraph(f'<b>{label}</b>', cell) for label in ('№', 'Поручение и источник', 'Ответственный', 'Срок / статус')]]
+        for index, task in enumerate(meeting.tasks, 1):
+            action = [Paragraph('<b>' + escape(task.title) + '</b>', cell)]
+            if task.description and task.description.strip().rstrip('.') != task.title.strip().rstrip('.'):
+                action.append(Paragraph(escape(task.description), cell))
+            evidence = [segment_map[sid] for sid in task.evidence_segment_ids if sid in segment_map]
+            if evidence:
+                action.append(Paragraph('Источники: ' + ', '.join(f'{stamp(s.start)}–{stamp(s.end)}' for s in evidence), cell_muted))
+            if task.needs_review:
+                action.append(Paragraph('Уточнить: ' + escape('; '.join(task.review_reasons)), cell_muted))
+            deadline = task.due_date.isoformat() if task.due_date else task.deadline_text or 'Не указан'
+            state = {'open': 'Открыто', 'in_progress': 'В работе', 'done': 'Выполнено'}[task.status]
+            dates = [Paragraph(escape(deadline), cell), Paragraph(state, cell_muted)]
+            if task.due_date and task.deadline_text:
+                dates.append(Paragraph('В записи: ' + escape(task.deadline_text), cell_muted))
+            if task.is_overdue:
+                dates.append(Paragraph('<b>Просрочено</b>', cell))
+            rows.append([Paragraph(str(index), cell), action,
+                         Paragraph(escape(task.assignee_name or 'Не установлен'), cell), dates])
+        table = LongTable(rows, colWidths=[8 * mm, 91 * mm, 35 * mm, 36 * mm], repeatRows=2,
+                          splitInRow=1, hAlign='LEFT')
+        table.setStyle(TableStyle([
+            ('SPAN', (0, 0), (-1, 0)),
+            ('BACKGROUND', (0, 1), (-1, 1), colors.HexColor('#e2e8f0')),
+            ('GRID', (0, 1), (-1, -1), .4, colors.HexColor('#cbd5e1')),
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+            ('LEFTPADDING', (0, 0), (-1, -1), 5), ('RIGHTPADDING', (0, 0), (-1, -1), 5),
+            ('TOPPADDING', (0, 0), (-1, -1), 6), ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+        ]))
+        story.append(table)
     story.append(PageBreak())
     add('Транскрипт', heading)
     names = {speaker.id: speaker.display_name for speaker in meeting.speakers}
     for segment in meeting.segments:
-        add(f'{stamp(segment.start)}–{stamp(segment.end)} · {names.get(segment.speaker_id, "Неизвестный спикер")}', heading)
-        add(segment.text)
+        block = [Paragraph(escape(f'{stamp(segment.start)}–{stamp(segment.end)} · {names.get(segment.speaker_id, "Неизвестный спикер")}'), transcript_heading),
+                 Paragraph(escape(segment.text), base)]
         if segment.needs_review:
-            add('Распознавание или определение говорящего требует проверки.', muted)
+            block.append(Paragraph('Распознавание или определение говорящего требует проверки.', muted))
+        story.append(KeepTogether(block))
     stream = BytesIO()
     document = SimpleDocTemplate(stream, pagesize=A4, leftMargin=18 * mm, rightMargin=18 * mm,
                                  topMargin=18 * mm, bottomMargin=20 * mm,

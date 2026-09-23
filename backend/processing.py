@@ -10,8 +10,10 @@ import time
 
 from .config import Settings
 from .deadlines import resolve_deadline
+from .extraction_audit import AUDIT_PROMPT, apply_audit
+from .grounding import canonical, ground_task, merge_exact_tasks, quote_sources, task_diagnostics
 from .inference import GenerationMonitor, TranscriptReferences
-from .schemas import Extraction, Meeting, Segment, Speaker, SpeakerIdentification, Task
+from .schemas import Extraction, ExtractionAudit, GroundedExtraction, Meeting, Segment, Speaker, SpeakerIdentification, Task
 
 
 log = logging.getLogger('uvicorn.error.hackalem.processing')
@@ -51,10 +53,15 @@ def align_words(asr_segments: list[dict], turns: list[tuple[float, float, str]])
                 overlap = max(0., min(end, b) - max(start, a))
                 if overlap:
                     scores[label] += overlap
+            # Some ASR words have a point timestamp. Use the unique active turn, preserving review status.
+            if end == start:
+                active = {label for a, b, label in turns if a <= start < b}
+                if len(active) == 1:
+                    scores[next(iter(active))] = .01
             ordered = sorted(scores.items(), key=lambda item: -item[1])
             label = ordered[0][0] if ordered else None
             duration = max(end - start, .01)
-            uncertain = (not ordered or ordered[0][1] / duration < .5 or
+            uncertain = (end == start or not ordered or ordered[0][1] / duration < .5 or
                          (len(ordered) > 1 and ordered[1][1] / duration > .25) or
                          word.get('probability', 1.) < .5 or raw.get('avg_logprob', 0) < -1.)
             speaker_id = ids.get(label)
@@ -72,6 +79,7 @@ def align_words(asr_segments: list[dict], turns: list[tuple[float, float, str]])
 
 
 def apply_speaker_suggestions(meeting: Meeting, suggestions):
+    suggestions = [s for s in suggestions if not re.fullmatch(r'(?:спикер|speaker)[\s_]*\d+|неизвестный(?: спикер)?', s.display_name.strip(), re.I)]
     segments = {segment.id: segment for segment in meeting.segments}
     speakers = {speaker.id: speaker for speaker in meeting.speakers}
     proposed = {}
@@ -102,14 +110,8 @@ def materialize_extraction(meeting: Meeting, extraction: Extraction):
             raise ValueError('Unknown assignee speaker ID')
     apply_speaker_suggestions(meeting, extraction.speakers)
     tasks = []
-    seen = set()
-    for item in extraction.tasks:
-        key = (' '.join(item.title.lower().split()), (item.assignee_name or '').lower(), item.deadline_text)
-        if key in seen:
-            continue
-        seen.add(key)
+    for item in merge_exact_tasks([ground_task(item, meeting) for item in extraction.tasks]):
         source = ' '.join(segments[sid].text for sid in item.evidence_segment_ids)
-        canonical = lambda value: ' '.join(value.casefold().split())
         if item.deadline_text and canonical(item.deadline_text) not in canonical(source):
             due, kind, reasons = None, item.deadline_kind, ['Формулировка срока не совпадает с источником; требуется проверка']
         else:
@@ -131,20 +133,28 @@ SYSTEM_PROMPT = '''Ты составляешь проверяемый проек
 Возвращай только JSON по переданной схеме, без Markdown и рассуждений.
 Работай с русским, казахским и смешанной речью. Сохраняй написание имён.
 Каждое поручение должно иметь evidence_segment_ids существующих реплик. Не придумывай факты.
+В evidence_quote скопируй дословную цитату назначения или принятия действия из этих реплик.
+Не ограничивайся списком «первое, второе»: проверь весь диалог до последней реплики, включая
+прямые обращения, обязательства исполнителей, согласования и поручения в вопросительной форме.
+description содержит произнесённые результат, объекты, охват, условия и критерии выполнения.
+Не заменяй их общими фразами «для улучшения эффективности» или «для снижения рисков».
 Автор поручения и исполнитель различаются. Исполнитель может не говорить вообще или быть отделом.
 Если имя, исполнитель или срок неизвестны, используй null и укажи причину проверки.
 assignee_speaker_id заполняй только при обоснованном сопоставлении, иначе null.
-Имена спикеров предлагай только по ясному контексту обращения/представления, а не по тембру.
-Обращение «Начнём с Айданы Сериковны» относится к следующему отвечающему голосу, не к ведущему.
-В evidence_segment_ids для имени включи обращение и ответ именуемого спикера либо его самопредставление.
-Одно упоминание имени или поручение человеку ещё не доказывает, что он говорит на записи.
+Поле speakers оставь пустым: имена голосов определяются отдельно. Не повторяй технические метки
+«Спикер 1» как найденные имена. Исполнителей поручений извлекай из текста независимо от меток голосов.
 deadline_text — исходная формулировка срока из реплики, не рассчитанная дата. Не придумывай год.
+Копируй срок вместе с предлогом без перефразирования. Включи следующую реплику в источники,
+если число/месяц или ответ исполнителя отделены границей сегмента.
 Не считай условия договора (например, 5 дней на выставление счёта) сроком подготовки договора.
 Сохраняй последнее явно принятое уточнение срока. При неоднозначном конфликте ставь conflicting.
 Объединяй повторы поручений в итогах, сохраняя ссылки на источники. Не превращай предложения
 и условные действия в безусловно принятые поручения. Не выдавай предположения за факты.
 Разделяй результаты с разными сроками: смета за неделю и обучение за месяц — разные задачи.
 Если поручений нет, tasks=[]. Саммари отражает обсуждение, решения и явно обозначенные риски.
+Саммари должно сохранять ключевые проценты, показатели готовности, потери и длительность рисков,
+если они прозвучали. Отсутствие проверки не равнозначно установленной неисправности.
+summary.decisions оставь пустым: итоговый список решений будет собран из проверенных задач.
 Используй короткие идентификаторы S1, S2 для спикеров и T1, T2 для реплик точно как во входе.
 Пиши кратко: не переписывай транскрипт в description или саммари. Верни один JSON-объект.
 '''
@@ -210,7 +220,8 @@ class LocalEngine:
             self.asr = WhisperModel(str(self.settings.model_dir / 'asr'), device=self.settings.device,
                                     compute_type='float16' if self.settings.device == 'cuda' else 'int8',
                                     local_files_only=True)
-        segments, _ = self.asr.transcribe(str(path), task='transcribe', multilingual=True,
+        segments, _ = self.asr.transcribe(str(path), task='transcribe', language=self.settings.asr_language,
+                                          multilingual=self.settings.asr_language is None, hotwords=self.settings.asr_hotwords,
                                           word_timestamps=True, vad_filter=True,
                                           condition_on_previous_text=False, beam_size=5)
         results = []
@@ -232,8 +243,10 @@ class LocalEngine:
             self.diarizer = Pipeline.from_pretrained(str(self.settings.model_dir / 'diarization'))
             self.diarizer.to(torch.device(self.settings.device))
         waveform, rate = sf.read(path, dtype='float32', always_2d=True)
-        output = self.diarizer({'waveform': torch.from_numpy(waveform.T.copy()), 'sample_rate': rate})
-        annotation = output.speaker_diarization
+        options = {'num_speakers': self.settings.num_speakers} if self.settings.num_speakers else {}
+        output = self.diarizer({'waveform': torch.from_numpy(waveform.T.copy()), 'sample_rate': rate}, **options)
+        # Community-1 provides exclusive turns for alignment with transcription timestamps.
+        annotation = output.exclusive_speaker_diarization
         return [(float(segment.start), float(segment.end), str(label))
                 for segment, _, label in annotation.itertracks(yield_label=True)]
 
@@ -285,7 +298,16 @@ class LocalEngine:
                                     deadline=time.monotonic() + self.settings.speaker_timeout_seconds)
             suggestions = references.decode_speakers(parse_json_output(answer))
             trial = meeting.model_copy(deep=True)
-            apply_speaker_suggestions(trial, suggestions)
+            names = defaultdict(set)
+            for suggestion in suggestions:
+                names[suggestion.speaker_id].add(canonical(suggestion.display_name))
+            for suggestion in suggestions:
+                if len(names[suggestion.speaker_id]) > 1:
+                    continue
+                try:
+                    apply_speaker_suggestions(trial, [suggestion])
+                except ValueError:
+                    log.warning('Meeting %s: one ungrounded speaker suggestion skipped', meeting.id)
             log.info('Meeting %s: %d speaker name suggestions', meeting.id, len(suggestions))
             return trial.speakers
         except (ValueError, ProcessingError) as exc:
@@ -294,24 +316,68 @@ class LocalEngine:
                         exc.code if isinstance(exc, ProcessingError) else 'INVALID_MODEL_OUTPUT')
             return meeting.speakers
 
-    def extract(self, meeting: Meeting):
+    def extract(self, meeting: Meeting, on_partial=None):
         self._ensure_llm()
         references = TranscriptReferences(meeting)
         messages = [{'role': 'system', 'content': SYSTEM_PROMPT + '\nJSON Schema:\n' +
-                     json.dumps(Extraction.model_json_schema(), ensure_ascii=False)},
+                     json.dumps(GroundedExtraction.model_json_schema(), ensure_ascii=False)},
                     {'role': 'user', 'content': json.dumps(references.data, ensure_ascii=False)}]
         deadline = time.monotonic() + self.settings.llm_timeout_seconds
         for attempt in range(2):
             answer = self._generate(messages, label=f'extract {meeting.id} attempt={attempt + 1}',
                                     max_tokens=self.settings.llm_max_output_tokens, deadline=deadline)
             try:
-                extraction = references.decode_extraction(parse_json_output(answer))
+                payload = GroundedExtraction.model_validate(parse_json_output(answer))
+                extraction = references.decode_extraction(payload.model_dump())
+                extraction.tasks = [ground_task(task, meeting, require_quote=True) for task in extraction.tasks]
                 trial = meeting.model_copy(deep=True)
                 materialize_extraction(trial, extraction)
-                return trial
-            except (ValueError, KeyError):
+                break
+            except (ValueError, KeyError) as exc:
                 if attempt:
                     raise ProcessingError('INVALID_MODEL_OUTPUT', 'Модель не вернула корректный результат с существующими источниками. Требуется повторная обработка.') from None
                 log.warning('Meeting %s: invalid extraction JSON/references; attempting one repair within remaining budget', meeting.id)
                 messages.append({'role': 'assistant', 'content': answer})
-                messages.append({'role': 'user', 'content': 'Исправь JSON: соблюдай схему, используй только предоставленные идентификаторы T для источников и S для спикеров. Для имени цитируй также реплику именуемого спикера. Верни полный объект.'})
+                messages.append({'role': 'user', 'content': 'Ошибка проверки: ' + str(exc)[:1800] + '\nИсправь JSON: соблюдай схему, используй только предоставленные идентификаторы T для источников и S для спикеров. evidence_quote — непрерывная дословная цитата, не пересказ. Для имени цитируй также реплику именуемого спикера. Верни полный объект.'})
+
+        def partial(checked):
+            trial = meeting.model_copy(deep=True)
+            materialize_extraction(trial, extraction)
+            trial.extraction_checked_segments = checked
+            if on_partial:
+                for task in trial.tasks:
+                    task.needs_review = True
+                    task.review_reasons.append('Проверка полноты поручений ещё не завершена')
+                on_partial(trial)
+
+        partial(0)
+        checked = 0
+        windows = list(references.windows(self.settings.audit_window_chars))
+        for number, window in enumerate(windows, 1):
+            data = {'speakers': references.data['speakers'], **window,
+                    'tasks': [{**references.encode_task(task, f'C{i + 1}'),
+                               'validation_issues': task_diagnostics(task, meeting)}
+                              for i, task in enumerate(extraction.tasks)]}
+            audit_messages = [{'role': 'system', 'content': AUDIT_PROMPT + '\nJSON Schema:\n' +
+                               json.dumps(ExtractionAudit.model_json_schema(), ensure_ascii=False)},
+                              {'role': 'user', 'content': json.dumps(data, ensure_ascii=False)}]
+            for attempt in range(2):
+                answer = self._generate(audit_messages, label=f'audit {meeting.id} window={number}/{len(windows)} attempt={attempt + 1}',
+                                        max_tokens=self.settings.llm_max_output_tokens, deadline=deadline)
+                try:
+                    extraction = apply_audit(extraction, parse_json_output(answer), references, meeting, window)
+                    break
+                except (ValueError, KeyError) as exc:
+                    if attempt:
+                        raise ProcessingError('COVERAGE_CHECK_FAILED', 'Проверка полноты поручений не завершена. Черновик и транскрипт сохранены.') from None
+                    audit_messages.append({'role': 'assistant', 'content': answer})
+                    audit_messages.append({'role': 'user', 'content': 'Ошибка проверки: ' + str(exc)[:1800] + '\nИсправь JSON. Проверь все primary_segment_ids ровно по одному разу. Используй существующие C/T/S идентификаторы и непрерывные дословные цитаты. Верни полный объект проверки.'})
+            checked += len(window['primary_segment_ids'])
+            log.info('Meeting %s: coverage checked=%d/%d utterances tasks=%d', meeting.id, checked, len(meeting.segments), len(extraction.tasks))
+            partial(checked)
+        extraction.summary.decisions = [f'{task.title}. Ответственный: {task.assignee_name or "не установлен"}. Срок: {task.deadline_text or "не указан"}.'
+                                        for task in extraction.tasks]
+        trial = meeting.model_copy(deep=True)
+        materialize_extraction(trial, extraction)
+        trial.extraction_checked_segments = checked
+        return trial

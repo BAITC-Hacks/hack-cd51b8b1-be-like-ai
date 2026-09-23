@@ -15,7 +15,8 @@ class TranscriptReferences:
                           'identification': speaker.identification}
                          for alias, speaker in zip(self.speakers, meeting.speakers)],
             'segments': [{'id': alias, 'speaker_id': speaker_aliases.get(segment.speaker_id),
-                          'text': segment.text}
+                          'start': segment.start, 'end': segment.end, 'text': segment.text,
+                          'needs_review': segment.needs_review}
                          for alias, segment in zip(self.segments, meeting.segments)],
         }
 
@@ -45,6 +46,32 @@ class TranscriptReferences:
             if task.assignee_speaker_id is not None:
                 task.assignee_speaker_id = self._lookup(self.speakers, task.assignee_speaker_id)
         return result
+
+    def decode_task(self, task):
+        return self.decode_extraction({'summary': {}, 'tasks': [task.model_dump()]}).tasks[0]
+
+    def encode_task(self, task, task_id):
+        speakers = {value: key for key, value in self.speakers.items()}
+        segments = {value: key for key, value in self.segments.items()}
+        result = task.model_dump()
+        result['evidence_segment_ids'] = [segments[sid] for sid in task.evidence_segment_ids]
+        result['assignee_speaker_id'] = speakers.get(task.assignee_speaker_id)
+        return {'task_id': task_id, **result}
+
+    def windows(self, max_chars=6500, context_segments=2):
+        """Every utterance is primary once; neighbouring utterances provide context."""
+        segments = self.data['segments']
+        start = 0
+        while start < len(segments):
+            end, size = start, 0
+            while end < len(segments) and (end == start or size + len(segments[end]['text']) <= max_chars):
+                size += len(segments[end]['text'])
+                end += 1
+            yield {
+                'primary_segment_ids': [s['id'] for s in segments[start:end]],
+                'segments': segments[max(0, start - context_segments):min(len(segments), end + context_segments)],
+            }
+            start = end
 
 
 class GenerationMonitor:

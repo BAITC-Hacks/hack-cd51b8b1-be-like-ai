@@ -86,6 +86,7 @@ interface Task {
   status: TaskStatus;
   is_overdue: boolean;           // вычисляет backend в timezone совещания
   evidence_segment_ids: string[];
+  evidence_quote?: string | null; // дословное основание поручения из транскрипта
   needs_review: boolean;
   review_reasons: string[];
   reviewed: boolean;
@@ -101,10 +102,11 @@ interface Meeting extends MeetingListItem {
   segments: Segment[];
   summary: {overview: string; decisions: string[]; risks: string[]};
   tasks: Task[];
+  extraction_checked_segments?: number; // число реплик, прошедших проверку полноты; НЕ процент точности
 }
 ```
 
-При `failed` сохраняется последний этап, `error` содержит причину. При `ready` все коллекции присутствуют; поручений может не быть. Саммари до готовности имеет пустую строку и пустые массивы.
+При `failed` сохраняется последний этап, `error` содержит причину. При `ready` все коллекции присутствуют; поручений может не быть. На этапе `extract` уже могут появиться черновые поручения и саммари; они помечены как требующие проверки. Отображать их можно, экспорт разрешён только после `ready`. `COVERAGE_CHECK_FAILED` означает, что независимая проверка полноты не завершилась: сохранённый черновик не является готовым протоколом.
 
 ## Правки и поведение UI
 

@@ -58,6 +58,7 @@ class Task(StrictModel):
     status: TaskStatus = 'open'
     is_overdue: bool = False
     evidence_segment_ids: list[str] = Field(default_factory=list)
+    evidence_quote: str | None = None
     needs_review: bool = True
     review_reasons: list[str] = Field(default_factory=list)
     reviewed: bool = False
@@ -84,6 +85,7 @@ class Meeting(StrictModel):
     segments: list[Segment] = Field(default_factory=list)
     summary: Summary = Field(default_factory=Summary)
     tasks: list[Task] = Field(default_factory=list)
+    extraction_checked_segments: int = 0
 
 
 class TaskPatch(StrictModel):
@@ -126,6 +128,7 @@ class ExtractedTask(StrictModel):
     deadline_text: str | None = Field(default=None, max_length=500)
     deadline_kind: DeadlineKind = 'unspecified'
     evidence_segment_ids: list[str] = Field(min_length=1, max_length=30)
+    evidence_quote: str | None = Field(default=None, max_length=1600)
     review_reasons: list[str] = Field(default_factory=list)
 
 
@@ -143,3 +146,29 @@ class Extraction(StrictModel):
 
 class SpeakerIdentification(StrictModel):
     speakers: list[SpeakerSuggestion] = Field(max_length=30)
+
+
+class GroundedTask(ExtractedTask):
+    evidence_quote: str = Field(min_length=1, max_length=1600)
+
+
+class GroundedExtraction(Extraction):
+    tasks: list[GroundedTask] = Field(max_length=100)
+
+
+class TaskCorrection(StrictModel):
+    task_id: str
+    task: GroundedTask
+
+
+class TaskRemoval(StrictModel):
+    task_id: str
+    reason: str = Field(min_length=1, max_length=500)
+    evidence_segment_ids: list[str] = Field(min_length=1, max_length=30)
+
+
+class ExtractionAudit(StrictModel):
+    checked_segment_ids: list[str]
+    additions: list[GroundedTask] = Field(max_length=100)
+    corrections: list[TaskCorrection] = Field(max_length=100)
+    removals: list[TaskRemoval] = Field(max_length=100)

@@ -17,8 +17,12 @@ class Settings:
     max_duration_seconds: int = 3600
     llm_max_input_tokens: int = 20000
     llm_max_output_tokens: int = 6000
-    llm_timeout_seconds: int = field(default_factory=lambda: int(os.getenv('HACKALEM_LLM_TIMEOUT_SECONDS', '240')))
+    llm_timeout_seconds: int = field(default_factory=lambda: int(os.getenv('HACKALEM_LLM_TIMEOUT_SECONDS', '600')))
+    audit_window_chars: int = 1600
     speaker_timeout_seconds: int = 60
+    asr_language: str | None = field(default_factory=lambda: os.getenv('HACKALEM_ASR_LANGUAGE') or None)
+    asr_hotwords: str | None = field(default_factory=lambda: os.getenv('HACKALEM_ASR_HOTWORDS') or None)
+    num_speakers: int | None = field(default_factory=lambda: int(os.environ['HACKALEM_NUM_SPEAKERS']) if os.getenv('HACKALEM_NUM_SPEAKERS') else None)
     device: str = field(default_factory=lambda: os.getenv('HACKALEM_DEVICE', 'cuda'))
     cors_origins: list[str] = field(default_factory=lambda: [
         x.strip() for x in os.getenv('HACKALEM_CORS_ORIGINS', 'http://localhost:5173,http://127.0.0.1:5173').split(',') if x.strip()

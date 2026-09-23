@@ -52,13 +52,17 @@ class Worker:
         current = self.store.get(meeting_id)
         if not current.segments or not current.speakers:
             raise ProcessingError('TRANSCRIPT_MISSING', 'Для повторного извлечения нужен сохранённый транскрипт с голосами.')
-        self.stage(meeting_id, 'extract', error=None)
+        self.stage(meeting_id, 'extract', error=None, extraction_checked_segments=0)
         if hasattr(self.engine, 'identify_speakers'):
             speakers = self.engine.identify_speakers(self.store.get(meeting_id))
             self.stage(meeting_id, 'extract', speakers=speakers)
-        result = self.engine.extract(self.store.get(meeting_id))
+        def partial(result):
+            self.stage(meeting_id, 'extract', tasks=result.tasks, summary=result.summary,
+                       extraction_checked_segments=result.extraction_checked_segments)
+        result = self.engine.extract(self.store.get(meeting_id), on_partial=partial)
         def complete(meeting):
             meeting.speakers, meeting.tasks, meeting.summary = result.speakers, result.tasks, result.summary
+            meeting.extraction_checked_segments = result.extraction_checked_segments
             meeting.status, meeting.stage, meeting.progress, meeting.error = 'ready', 'complete', 100., None
         self.store.update(meeting_id, complete)
 
