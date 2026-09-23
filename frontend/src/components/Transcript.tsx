@@ -20,6 +20,7 @@ interface TranscriptProps {
   onSeek: (seconds: number, segmentId: string) => void;
   onSpeakerUpdated: (speaker: Speaker) => void;
   onEditingChange?: (editing: boolean) => void;
+  readOnly?: boolean;
 }
 
 const identificationLabels: Record<Speaker["identification"], string> = {
@@ -55,7 +56,9 @@ export function Transcript({
   onSeek,
   onSpeakerUpdated,
   onEditingChange,
+  readOnly = false,
 }: TranscriptProps) {
+  const editable = !readOnly && meeting.status === "ready";
   const [query, setQuery] = useState("");
   const [editingSpeakerId, setEditingSpeakerId] = useState<string | null>(null);
   const [name, setName] = useState("");
@@ -86,6 +89,16 @@ export function Transcript({
   useEffect(() => {
     editingCallback.current?.(editingSpeakerId !== null);
   }, [editingSpeakerId]);
+
+  useEffect(() => {
+    if (editable) return;
+    requestVersion.current += 1;
+    setEditingSpeakerId(null);
+    setSaving(false);
+    setName("");
+    setError("");
+    setNotice("");
+  }, [editable]);
 
   useEffect(() => () => editingCallback.current?.(false), []);
 
@@ -124,6 +137,7 @@ export function Transcript({
   );
 
   function startRenaming(speaker: Speaker) {
+    if (!editable) return;
     setEditingSpeakerId(speaker.id);
     setName(speaker.display_name);
     setError("");
@@ -132,7 +146,7 @@ export function Transcript({
 
   async function saveSpeaker(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!editingSpeakerId || saving) return;
+    if (!editable || !editingSpeakerId || saving) return;
     if (!name.trim()) {
       setError("Введите имя или обозначение говорящего.");
       return;
@@ -191,6 +205,7 @@ export function Transcript({
                   className="button button-ghost transcript-icon-button"
                   onClick={() => startRenaming(speaker)}
                   disabled={
+                    !editable ||
                     saving ||
                     (editingSpeakerId !== null &&
                       editingSpeakerId !== speaker.id)
@@ -201,7 +216,7 @@ export function Transcript({
                   <Pencil size={14} />
                 </button>
               </div>
-              {editingSpeakerId === speaker.id && (
+              {editable && editingSpeakerId === speaker.id && (
                 <form className="transcript-name-form" onSubmit={saveSpeaker}>
                   <label htmlFor={`speaker-name-${speaker.id}`}>
                     Имя говорящего

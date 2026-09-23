@@ -10,6 +10,13 @@ import {
   X,
 } from "lucide-react";
 import { api } from "../lib/api";
+import {
+  buildTaskPatch,
+  changeTaskDraft,
+  startTaskEdit,
+  type TaskDraft,
+  type TaskEditor,
+} from "../lib/taskPatch";
 import type { Meeting, Task } from "../types";
 import "./meeting.css";
 
@@ -20,14 +27,6 @@ interface TaskTableProps {
   onEditingChange?: (editing: boolean) => void;
 }
 
-type TaskDraft = Pick<
-  Task,
-  "title" | "description" | "assignee_type" | "status" | "reviewed"
-> & {
-  assignee_name: string;
-  assignee_speaker_id: string;
-  due_date: string;
-};
 type Filter = "all" | "review" | "open" | "done";
 
 const statusLabels: Record<Task["status"], string> = {
@@ -35,20 +34,6 @@ const statusLabels: Record<Task["status"], string> = {
   in_progress: "В работе",
   done: "Выполнено",
 };
-
-function toDraft(task: Task): TaskDraft {
-  return {
-    title: task.title,
-    description: task.description,
-    assignee_name: task.assignee_name ?? "",
-    assignee_type: task.assignee_type,
-    assignee_speaker_id:
-      task.assignee_type === "person" ? (task.assignee_speaker_id ?? "") : "",
-    due_date: task.due_date ?? "",
-    status: task.status,
-    reviewed: task.reviewed,
-  };
-}
 
 function dateLabel(value: string) {
   const parts = value.split("-");
@@ -69,7 +54,8 @@ export function TaskTable({
 }: TaskTableProps) {
   const [filter, setFilter] = useState<Filter>("all");
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [draft, setDraft] = useState<TaskDraft | null>(null);
+  const [editor, setEditor] = useState<TaskEditor | null>(null);
+  const draft = editor?.draft;
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -80,7 +66,7 @@ export function TaskTable({
   useEffect(() => {
     requestVersion.current += 1;
     setEditingId(null);
-    setDraft(null);
+    setEditor(null);
     setSaving(false);
     setError("");
     setNotice("");
@@ -121,55 +107,45 @@ export function TaskTable({
 
   function edit(task: Task) {
     setEditingId(task.id);
-    setDraft(toDraft(task));
+    setEditor(startTaskEdit(task));
     setError("");
     setNotice("");
   }
 
   function cancel() {
     setEditingId(null);
-    setDraft(null);
+    setEditor(null);
     setError("");
   }
 
   function change<K extends keyof TaskDraft>(key: K, value: TaskDraft[K]) {
-    setDraft((current) =>
-      current
-        ? {
-            ...current,
-            [key]: value,
-            ...(key === "assignee_name" || key === "assignee_type"
-              ? { assignee_speaker_id: "" }
-              : {}),
-          }
-        : current,
+    setEditor((current) =>
+      current ? changeTaskDraft(current, key, value) : current,
     );
     setError("");
   }
 
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!draft || !editingId || saving) return;
+    if (!editor || !draft || !editingId || saving) return;
     if (!draft.title.trim()) {
       setError("Укажите название поручения.");
+      return;
+    }
+    const changes = buildTaskPatch(editor);
+    if (Object.keys(changes).length === 0) {
+      cancel();
       return;
     }
     const version = ++requestVersion.current;
     setSaving(true);
     setError("");
     try {
-      const updated = await api.updateTask(meeting.id, editingId, {
-        ...draft,
-        title: draft.title.trim(),
-        description: draft.description.trim(),
-        assignee_name: draft.assignee_name.trim() || null,
-        assignee_speaker_id: draft.assignee_speaker_id || null,
-        due_date: draft.due_date || null,
-      });
+      const updated = await api.updateTask(meeting.id, editingId, changes);
       if (requestVersion.current !== version) return;
       onTaskUpdated(updated);
       setEditingId(null);
-      setDraft(null);
+      setEditor(null);
       setNotice("Изменения поручения сохранены.");
     } catch (saveError) {
       if (requestVersion.current === version) setError(errorMessage(saveError));

@@ -53,6 +53,15 @@ export function normalizeApiBase(value?: string): string {
 export const USE_MOCKS = import.meta.env.VITE_USE_MOCKS === "true";
 export const API_BASE_URL = normalizeApiBase(import.meta.env.VITE_API_BASE_URL);
 
+const unauthorizedListeners = new Set<() => void>();
+
+export function onSessionRequired(listener: () => void): () => void {
+  unauthorizedListeners.add(listener);
+  return () => {
+    unauthorizedListeners.delete(listener);
+  };
+}
+
 type JsonObject = Record<string, unknown>;
 function asObject(value: unknown): JsonObject | null {
   return value !== null && typeof value === "object" && !Array.isArray(value)
@@ -148,6 +157,9 @@ async function request(
     );
   }
   if (!response.ok) {
+    if (response.status === 401 && path !== "/session") {
+      unauthorizedListeners.forEach((listener) => listener());
+    }
     let payload: unknown;
     try {
       payload = await response.json();
@@ -205,6 +217,18 @@ export interface CreateMeetingInput {
 }
 
 export const api = {
+  async login(token: string): Promise<void> {
+    await json<{ status: string }>("/session", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token }),
+    });
+  },
+
+  async logout(): Promise<void> {
+    await json<{ status: string }>("/session", { method: "DELETE" });
+  },
+
   async health(signal?: AbortSignal): Promise<Health> {
     if (USE_MOCKS) return (await mocks(signal)).health();
     return json<Health>("/health", { signal });

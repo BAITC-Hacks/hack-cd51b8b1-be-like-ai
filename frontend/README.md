@@ -13,4 +13,6 @@ npm run dev:demo
 
 Проверки: `npm test`, `npm run build`. Браузерные тесты: `npx playwright install chromium`, затем `npm run test:e2e`.
 
+Интеграция с настоящим FastAPI без GPU: `npm run test:integration`. Нужен Python с `requirements-dev.txt`; путь можно указать в `MEETORA_TEST_PYTHON`. Установка и различие тестов с подменой HTTP и реального API описаны в инструкции ниже.
+
 Подробности: [интеграция и запуск](../docs/FRONTEND.md), [сценарий демонстрации и проверка качества](../docs/DEMO.md).

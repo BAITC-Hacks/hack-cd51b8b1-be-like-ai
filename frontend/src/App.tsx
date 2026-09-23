@@ -17,6 +17,7 @@ import {
   Layers3,
   ListChecks,
   LoaderCircle,
+  LogOut,
   Menu,
   Plus,
   RefreshCw,
@@ -24,7 +25,7 @@ import {
   Sparkles,
   X,
 } from "lucide-react";
-import { api, USE_MOCKS } from "./lib/api";
+import { api, onSessionRequired, USE_MOCKS } from "./lib/api";
 import type {
   Health,
   Meeting,
@@ -36,6 +37,7 @@ import type {
 import { TaskTable } from "./components/TaskTable";
 import { Transcript } from "./components/Transcript";
 import { UploadDialog } from "./components/UploadDialog";
+import { SessionDialog } from "./components/SessionDialog";
 
 const statusLabels = {
   queued: "В очереди",
@@ -112,6 +114,10 @@ export default function App() {
   const [health, setHealth] = useState<Health | null>(null);
   const [healthError, setHealthError] = useState("");
   const [reload, setReload] = useState(0);
+  const [sessionRequired, setSessionRequired] = useState(false);
+  const [sessionRevision, setSessionRevision] = useState(0);
+  const [loggingOut, setLoggingOut] = useState(false);
+  const [logoutError, setLogoutError] = useState("");
   const [uploadOpen, setUploadOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [activeSegmentId, setActiveSegmentId] = useState<string | null>(null);
@@ -127,6 +133,40 @@ export default function App() {
   const exportLock = useRef(false);
   const selectedIdRef = useRef(selectedId);
   selectedIdRef.current = selectedId;
+
+  useEffect(() => onSessionRequired(() => setSessionRequired(true)), []);
+
+  function authenticated() {
+    setSessionRequired(false);
+    setSessionRevision((value) => value + 1);
+    // Repeat safe reads only; draft components remain mounted, mutations stay manual.
+    setListError("");
+    setMeetingError("");
+    setAudioError("");
+    if (audioRef.current) {
+      pendingSeek.current = audioRef.current.currentTime;
+      audioRef.current.load();
+    }
+  }
+
+  async function logout() {
+    if (loggingOut) return;
+    setLoggingOut(true);
+    setLogoutError("");
+    try {
+      await api.logout();
+      setMeeting(null);
+      setItems([]);
+      setUploadOpen(false);
+      setTaskEditing(false);
+      setSpeakerEditing(false);
+      setSessionRevision((value) => value + 1);
+    } catch (err) {
+      setLogoutError(message(err));
+    } finally {
+      setLoggingOut(false);
+    }
+  }
 
   const openMeeting = useCallback((id: string) => {
     window.location.hash = `/meetings/${encodeURIComponent(id)}`;
@@ -181,7 +221,7 @@ export default function App() {
         if (!controller.signal.aborted) setListLoading(false);
       });
     return () => controller.abort();
-  }, [reload, openMeeting]);
+  }, [reload, openMeeting, sessionRevision]);
   useEffect(() => {
     setMeeting(null);
     setMeetingError("");
@@ -192,6 +232,8 @@ export default function App() {
     setTaskEditing(false);
     setSpeakerEditing(false);
     pendingSeek.current = null;
+  }, [selectedId]);
+  useEffect(() => {
     if (!selectedId) return;
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout>;
@@ -225,7 +267,7 @@ export default function App() {
       controller.abort();
       clearTimeout(timer);
     };
-  }, [selectedId, reload]);
+  }, [selectedId, reload, sessionRevision]);
 
   function updateTask(task: Task) {
     setMeeting((previous) =>
@@ -314,6 +356,75 @@ export default function App() {
     meeting?.tasks.filter((task) => task.needs_review).length || 0;
   const sourceURL = meeting ? api.audioUrl(meeting.id) : null;
 
+  const recording = meeting ? (
+    <aside className="transcript-column">
+      <section className="panel audio-panel">
+        <div className="section-heading">
+          <div className="section-title">
+            <Headphones size={18} />
+            <h2>Исходная запись</h2>
+          </div>
+          <span className="muted small">
+            {duration(meeting.duration_seconds)}
+          </span>
+        </div>
+        {sourceURL ? (
+          <>
+            <audio
+              key={meeting.id}
+              ref={audioRef}
+              controls
+              preload="metadata"
+              src={sourceURL}
+              onError={() =>
+                setAudioError(
+                  "Не удалось загрузить аудио. Проверьте доступ к записи на сервере.",
+                )
+              }
+              onLoadedMetadata={() => {
+                setAudioError("");
+                if (pendingSeek.current !== null && audioRef.current) {
+                  audioRef.current.currentTime = pendingSeek.current;
+                  pendingSeek.current = null;
+                }
+              }}
+              aria-label="Аудиозапись совещания"
+            />
+            {audioError && (
+              <p className="inline-error" role="alert">
+                {audioError}
+              </p>
+            )}
+          </>
+        ) : (
+          <div className="audio-placeholder">
+            <AudioLines size={24} />
+            <p>У демонстрационного примера нет аудиозаписи.</p>
+          </div>
+        )}
+        <p className="audio-hint">
+          Нажмите таймкод в реплике, чтобы перейти к нужному моменту.
+        </p>
+      </section>
+      <section className="panel transcript-panel">
+        <div className="section-heading">
+          <div className="section-title">
+            <FileText size={18} />
+            <h2>Транскрипт</h2>
+          </div>
+          <span className="count-pill">{meeting.segments.length} реплик</span>
+        </div>
+        <Transcript
+          meeting={meeting}
+          activeSegmentId={activeSegmentId}
+          onSeek={seek}
+          onSpeakerUpdated={updateSpeaker}
+          readOnly={!ready}
+          onEditingChange={setSpeakerEditing}
+        />
+      </section>
+    </aside>
+  ) : null;
   return (
     <div className="app-shell">
       {sidebarOpen && (
@@ -433,6 +544,17 @@ export default function App() {
           </div>
           <div className="topbar-right">
             <span className="language-pill">RU / ҚАЗ</span>
+            {!USE_MOCKS && (
+              <button
+                className="button button-ghost session-logout"
+                onClick={() => void logout()}
+                disabled={loggingOut}
+                aria-label="Выйти"
+              >
+                <LogOut size={15} />
+                <span>{loggingOut ? "Выходим…" : "Выйти"}</span>
+              </button>
+            )}
             <span className="user-avatar" title="Команда Be Like AI">
               BL
             </span>
@@ -446,6 +568,11 @@ export default function App() {
           </div>
         )}
         <main className="main-content">
+          {logoutError && (
+            <div className="alert" role="alert">
+              {logoutError}
+            </div>
+          )}
           {!USE_MOCKS && healthError && (
             <div className="alert" role="alert">
               <AlertCircle size={18} />
@@ -703,6 +830,28 @@ export default function App() {
                       </p>
                     </section>
                   )}
+                  {!ready && meeting.segments.length > 0 && (
+                    <section
+                      className="partial-results"
+                      aria-label="Частичный результат"
+                    >
+                      <div className="alert info">
+                        <FileText size={18} />
+                        <div>
+                          <strong>
+                            Частичный результат: транскрипт сохранён
+                          </strong>
+                          <p>
+                            Можно прослушать запись и прочитать доступные
+                            реплики. Поручения ещё не готовы; редактирование и
+                            экспорт будут доступны после успешного завершения
+                            обработки.
+                          </p>
+                        </div>
+                      </div>
+                      {recording}
+                    </section>
+                  )}
                   {ready && (
                     <>
                       <div className="metric-strip">
@@ -838,81 +987,7 @@ export default function App() {
                             />
                           </section>
                         </div>
-                        <aside className="transcript-column">
-                          <section className="panel audio-panel">
-                            <div className="section-heading">
-                              <div className="section-title">
-                                <Headphones size={18} />
-                                <h2>Исходная запись</h2>
-                              </div>
-                              <span className="muted small">
-                                {duration(meeting.duration_seconds)}
-                              </span>
-                            </div>
-                            {sourceURL ? (
-                              <>
-                                <audio
-                                  key={meeting.id}
-                                  ref={audioRef}
-                                  controls
-                                  preload="metadata"
-                                  src={sourceURL}
-                                  onError={() =>
-                                    setAudioError(
-                                      "Не удалось загрузить аудио. Проверьте доступ к записи на сервере.",
-                                    )
-                                  }
-                                  onLoadedMetadata={() => {
-                                    setAudioError("");
-                                    if (
-                                      pendingSeek.current !== null &&
-                                      audioRef.current
-                                    ) {
-                                      audioRef.current.currentTime =
-                                        pendingSeek.current;
-                                      pendingSeek.current = null;
-                                    }
-                                  }}
-                                  aria-label="Аудиозапись совещания"
-                                />
-                                {audioError && (
-                                  <p className="inline-error" role="alert">
-                                    {audioError}
-                                  </p>
-                                )}
-                              </>
-                            ) : (
-                              <div className="audio-placeholder">
-                                <AudioLines size={24} />
-                                <p>
-                                  У демонстрационного примера нет аудиозаписи.
-                                </p>
-                              </div>
-                            )}
-                            <p className="audio-hint">
-                              Нажмите таймкод в реплике, чтобы перейти к нужному
-                              моменту.
-                            </p>
-                          </section>
-                          <section className="panel transcript-panel">
-                            <div className="section-heading">
-                              <div className="section-title">
-                                <FileText size={18} />
-                                <h2>Транскрипт</h2>
-                              </div>
-                              <span className="count-pill">
-                                {meeting.segments.length} реплик
-                              </span>
-                            </div>
-                            <Transcript
-                              meeting={meeting}
-                              activeSegmentId={activeSegmentId}
-                              onSeek={seek}
-                              onSpeakerUpdated={updateSpeaker}
-                              onEditingChange={setSpeakerEditing}
-                            />
-                          </section>
-                        </aside>
+                        {recording}
                       </div>
                     </>
                   )}
@@ -938,6 +1013,7 @@ export default function App() {
           }}
         />
       )}
+      {sessionRequired && <SessionDialog onAuthenticated={authenticated} />}
     </div>
   );
 }

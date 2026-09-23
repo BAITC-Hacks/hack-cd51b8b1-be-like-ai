@@ -5,3 +5,5 @@ dist/
 *.tsbuildinfo
 test-results/
 playwright-report/
+.venv-integration/
+__pycache__/

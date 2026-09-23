@@ -5,6 +5,7 @@ import {
   normalizeApiBase,
   parseApiError,
   USE_MOCKS,
+  onSessionRequired,
 } from "./api";
 
 afterEach(() => {
@@ -13,6 +14,80 @@ afterEach(() => {
 });
 
 describe("API configuration and errors", () => {
+  it.skipIf(USE_MOCKS)(
+    "announces an expired session without retrying the mutation",
+    async () => {
+      const expired = vi.fn();
+      const unsubscribe = onSessionRequired(expired);
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValue(
+          new Response(
+            JSON.stringify({
+              error: { code: "UNAUTHORIZED", message: "Войдите снова" },
+            }),
+            { status: 401 },
+          ),
+        );
+      vi.stubGlobal("fetch", fetchMock);
+      try {
+        await expect(
+          api.updateTask("meeting", "task", { status: "done" }),
+        ).rejects.toMatchObject({ status: 401 });
+        expect(expired).toHaveBeenCalledOnce();
+        expect(fetchMock).toHaveBeenCalledOnce();
+      } finally {
+        unsubscribe();
+      }
+    },
+  );
+
+  it.skipIf(USE_MOCKS)(
+    "uses cookie login/logout and leaves wrong-code errors in the login form",
+    async () => {
+      const expired = vi.fn();
+      const unsubscribe = onSessionRequired(expired);
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              error: { code: "UNAUTHORIZED", message: "Неверный код доступа" },
+            }),
+            { status: 401 },
+          ),
+        )
+        .mockResolvedValueOnce(new Response(JSON.stringify({ status: "ok" })))
+        .mockResolvedValueOnce(new Response(JSON.stringify({ status: "ok" })));
+      vi.stubGlobal("fetch", fetchMock);
+      try {
+        await expect(api.login("test-invalid")).rejects.toMatchObject({
+          status: 401,
+        });
+        expect(expired).not.toHaveBeenCalled();
+        await api.login("test-session-code");
+        await api.logout();
+        expect(fetchMock.mock.calls[1]).toEqual([
+          "/api/session",
+          expect.objectContaining({
+            method: "POST",
+            credentials: "same-origin",
+            body: JSON.stringify({ token: "test-session-code" }),
+          }),
+        ]);
+        expect(fetchMock.mock.calls[2]).toEqual([
+          "/api/session",
+          expect.objectContaining({
+            method: "DELETE",
+            credentials: "same-origin",
+          }),
+        ]);
+      } finally {
+        unsubscribe();
+      }
+    },
+  );
+
   it("uses a same-origin API by default and accepts origins and explicit bases", () => {
     expect(normalizeApiBase()).toBe("/api");
     expect(normalizeApiBase("  /api/ ")).toBe("/api");
@@ -94,13 +169,11 @@ describe("API configuration and errors", () => {
       const cancelled = new DOMException("Aborted", "AbortError");
       vi.stubGlobal(
         "fetch",
-        vi
-          .fn()
-          .mockResolvedValue({
-            ok: true,
-            status: 200,
-            json: () => Promise.reject(cancelled),
-          }),
+        vi.fn().mockResolvedValue({
+          ok: true,
+          status: 200,
+          json: () => Promise.reject(cancelled),
+        }),
       );
       await expect(api.listMeetings()).rejects.toBe(cancelled);
     },
@@ -111,13 +184,11 @@ describe("API configuration and errors", () => {
     async () => {
       vi.stubGlobal(
         "fetch",
-        vi
-          .fn()
-          .mockResolvedValue(
-            new Response("<html>Frontend fallback</html>", {
-              headers: { "Content-Type": "text/html" },
-            }),
-          ),
+        vi.fn().mockResolvedValue(
+          new Response("<html>Frontend fallback</html>", {
+            headers: { "Content-Type": "text/html" },
+          }),
+        ),
       );
       await expect(api.downloadExport("example", "pdf")).rejects.toMatchObject({
         code: "INVALID_EXPORT",
@@ -128,13 +199,11 @@ describe("API configuration and errors", () => {
   it.skipIf(USE_MOCKS)(
     "omits unknown meeting dates from multipart uploads",
     async () => {
-      const fetchMock = vi
-        .fn()
-        .mockResolvedValue(
-          new Response(JSON.stringify({ meeting_id: "id", status: "queued" }), {
-            status: 202,
-          }),
-        );
+      const fetchMock = vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ meeting_id: "id", status: "queued" }), {
+          status: 202,
+        }),
+      );
       vi.stubGlobal("fetch", fetchMock);
       await api.createMeeting({
         file: new File(["audio"], "meeting.wav", { type: "audio/wav" }),

@@ -12,6 +12,29 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("explicit demo data", () => {
+  it("invalidates inherited review after a substantive edit and accepts a fresh confirmation", () => {
+    const original = demoMeeting.tasks[5];
+    expect(original.reviewed).toBe(true);
+    const edited = demoApi.updateTask(DEMO_MEETING_ID, original.id, {
+      title: "Уточнённая проверка доступа",
+    });
+    expect(edited.reviewed).toBe(false);
+    expect(
+      demoApi.updateTask(DEMO_MEETING_ID, original.id, { reviewed: true })
+        .reviewed,
+    ).toBe(true);
+  });
+
+  it("preserves event deadline and reasons when only status changes", () => {
+    const original = demoMeeting.tasks[4];
+    const updated = demoApi.updateTask(DEMO_MEETING_ID, original.id, {
+      status: "in_progress",
+    });
+    expect(updated.deadline_kind).toBe("event");
+    expect(updated.review_reasons).toEqual(original.review_reasons);
+    expect(updated.due_date).toBeNull();
+  });
+
   it("persists task edits while retaining the original evidence and deadline text", () => {
     const original = demoMeeting.tasks[0];
     demoApi.updateTask(DEMO_MEETING_ID, original.id, {

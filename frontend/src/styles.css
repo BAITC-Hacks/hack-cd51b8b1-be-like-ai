@@ -14,6 +14,38 @@
   --surface: #fff;
   --soft-green: #eff6f1;
 }
+
+.session-dialog {
+  max-width: 480px;
+}
+.session-lock {
+  display: inline-flex;
+  color: var(--green);
+  padding: 12px;
+  background: var(--soft-green);
+  border-radius: 12px;
+  margin-bottom: 20px;
+}
+.session-dialog .field {
+  margin-bottom: 8px;
+}
+.session-error {
+  margin-top: 15px;
+}
+.session-logout {
+  font-size: 11px;
+  padding: 7px 9px;
+}
+.partial-results {
+  margin-top: 22px;
+}
+.partial-results .transcript-column {
+  max-width: 960px;
+  margin: 0 auto;
+}
+.partial-results .transcript-segments {
+  max-height: none;
+}
 * {
   box-sizing: border-box;
 }

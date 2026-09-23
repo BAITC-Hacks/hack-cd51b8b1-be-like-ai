@@ -396,7 +396,16 @@ export const demoApi = {
         "VALIDATION_ERROR",
         422,
       );
+    const substantive = Object.keys(changes).some((key) => {
+      const field = key as keyof TaskPatch;
+      return (
+        field !== "status" &&
+        field !== "reviewed" &&
+        changes[field] !== task[field]
+      );
+    });
     Object.assign(task, changes);
+    if (substantive && changes.reviewed === undefined) task.reviewed = false;
     if (changes.due_date !== undefined) {
       if (changes.due_date) {
         task.deadline_kind = "date";
