@@ -273,3 +273,17 @@ def test_adjacent_same_assignee_is_not_enough_without_an_acceptance_reply():
     extraction.tasks[1].title = 'Подготовить отдельную смету'
     with pytest.raises(ValueError, match='different actions'):
         apply_consolidation(extraction, payload, TranscriptReferences(meeting), meeting)
+
+
+def test_final_edit_retains_validated_quote_when_editor_paraphrases_it():
+    meeting, extraction, payload = consolidation_example()
+    refs = TranscriptReferences(meeting)
+    merged = dict(payload['merges'][0]['task'])
+    merged['evidence_quote'] = 'Алия, запросите письменное заключение юристов.'
+    payload['merges'][0]['task'] = merged
+    independent = refs.encode_task(extraction.tasks[2], 'current')
+    independent.pop('task_id')
+    engine = ScriptedEngine([json.dumps(payload), json.dumps(merged), json.dumps(independent)])
+    result = engine.consolidate(extraction, meeting, 12345.)
+    assert result.tasks[0].evidence_quote == meeting.segments[0].text
+    assert len(engine.calls) == 3

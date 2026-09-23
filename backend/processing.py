@@ -370,6 +370,15 @@ class LocalEngine:
         combined = {'merges': [], 'corrections': []}
         touched = set()
         grounder = lambda task: self._ground_or_repair(task, meeting, references, deadline)
+        def preserve_quote(task, original):
+            try:
+                return ground_task(task, meeting, require_quote=True)
+            except ValueError:
+                # This is a revision of an existing action, not a new extraction.
+                # Keep its already validated quotation if the editor paraphrases it.
+                task.evidence_quote = original.evidence_quote
+                task.evidence_segment_ids = list(dict.fromkeys(task.evidence_segment_ids + original.evidence_segment_ids))
+                return ground_task(task, meeting, require_quote=True)
         def ask(messages, label, validate):
             for attempt in range(2):
                 answer = self._generate(messages, label=f'{label} {meeting.id} attempt={attempt + 1}',
@@ -395,7 +404,9 @@ class LocalEngine:
                 if not set(ids) <= set(pair):
                     raise ValueError('Only these two task IDs are available: ' + ', '.join(pair))
                 for edit in [*plan.merges, *plan.corrections]:
-                    fixed = references.encode_task(grounder(references.decode_task(edit.task)), 'fixed')
+                    source_id = edit.task_ids[0] if hasattr(edit, 'task_ids') else edit.task_id
+                    original = extraction.tasks[int(source_id[1:]) - 1]
+                    fixed = references.encode_task(preserve_quote(references.decode_task(edit.task), original), 'fixed')
                     fixed.pop('task_id')
                     edit.task = GroundedTask.model_validate(fixed)
                 apply_consolidation(extraction, plan.model_dump(), references, meeting)
@@ -420,7 +431,7 @@ class LocalEngine:
                 {'role': 'user', 'content': json.dumps({**references.data,
                     'task': references.encode_task(task, 'current')}, ensure_ascii=False)}]
             result.tasks[i] = ask(messages, f'verify task {i + 1}/{len(result.tasks)}',
-                lambda payload: grounder(references.decode_task(GroundedTask.model_validate(payload))))
+                lambda payload: preserve_quote(references.decode_task(GroundedTask.model_validate(payload)), task))
         return result
 
     def extract(self, meeting: Meeting, on_partial=None):
