@@ -11,7 +11,19 @@
 
 ## Доступ
 
-У Secure Link есть собственная авторизация Brev. Разрешить второму участнику доступ к этой ссылке под его учётной записью. После входа Brev приложение отдельно запрашивает `HACKALEM_ACCESS_TOKEN` — код, который лидер задал перед запуском backend. Передать его участнику приватно. Токен Hugging Face для интерфейса не нужен; секреты не помещать в переменные `VITE_*`, Git или браузерный код.
+У Secure Link есть собственная авторизация Brev. Разрешить ((.venv) ) ubuntu@brev-xnsl493w7:~/workspace/hackalem-ai$ .venv/bin/python -m zipfile -e ../meetora-frontend.zip frontend/dist
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/home/ubuntu/.local/share/uv/python/cpython-3.12.14-linux-x86_64-gnu/lib/python3.12/zipfile/__main__.py", line 4, in <module>
+    main()
+  File "/home/ubuntu/.local/share/uv/python/cpython-3.12.14-linux-x86_64-gnu/lib/python3.12/zipfile/__init__.py", line 2313, in main
+    with ZipFile(src, 'r', metadata_encoding=encoding) as zf:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/ubuntu/.local/share/uv/python/cpython-3.12.14-linux-x86_64-gnu/lib/python3.12/zipfile/__init__.py", line 1353, in __init__
+    self.fp = io.open(file, filemode)
+              ^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '../meetora-frontend.zip'второму участнику доступ к этой ссылке под его учётной записью. После входа Brev приложение отдельно запрашивает `HACKALEM_ACCESS_TOKEN` — код, который лидер задал перед запуском backend. Передать его участнику приватно. Токен Hugging Face для интерфейса не нужен; секреты не помещать в переменные `VITE_*`, Git или браузерный код.
 
 Сначала участник открывает `/api/health`, затем `/login`. Ответ health не требует кода приложения, но защита Brev применяется ко всей ссылке.
 
