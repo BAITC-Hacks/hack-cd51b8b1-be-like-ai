@@ -82,6 +82,17 @@ def ground_task(task, meeting, *, require_quote=False):
         selected.update(index[sid] for sid in sources)
         neighbours = sorted({j for i in selected for j in range(max(0, i - 1), min(len(index), i + 2))})
         neighbour_segments = [meeting.segments[i] for i in neighbours]
+        # An explicit address in the validated action quote outranks a model guess
+        # based on the voice label or the colleague mentioned later in the sentence.
+        name = r'[А-ЯЁӘҒҚҢӨҰҮҺІA-Z][а-яёәғқңөұүһіa-z-]+'
+        imperative = r'свяжитесь|согласуйте|подготовьте|проведите|представьте|проверьте|запросите|организуйте|разберитесь'
+        addressed = {m.group('name') for m in re.finditer(
+            rf'\b(?P<name>{name}(?:\s+{name}){{1,2}}),\s*(?:пожалуйста,?\s+)?(?:{imperative})\b', task.evidence_quote)}
+        if len(addressed) == 1:
+            explicit = addressed.pop()
+            if canonical(explicit) != canonical(task.assignee_name or ''):
+                task.assignee_name, task.assignee_type, task.assignee_speaker_id = explicit, 'person', None
+                task.review_reasons.append('Исполнитель восстановлен по явному обращению в цитате; проверьте написание имени')
     if task.deadline_text:
         sources = continuous_sources(task.deadline_text, selected) or continuous_sources(task.deadline_text, neighbours)
         if not sources and task.deadline_kind not in ('event', 'conflicting'):

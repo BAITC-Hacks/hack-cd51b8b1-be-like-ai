@@ -287,3 +287,21 @@ def test_final_edit_retains_validated_quote_when_editor_paraphrases_it():
     result = engine.consolidate(extraction, meeting, 12345.)
     assert result.tasks[0].evidence_quote == meeting.segments[0].text
     assert len(engine.calls) == 3
+
+
+def test_explicit_address_in_action_quote_overrides_mentioned_colleague():
+    text = 'Тимур Балатович, свяжитесь с Нурланом Сагатовичем на этой неделе, не задваивайте бюджет.'
+    meeting = meeting_from_texts(text)
+    extracted = task(meeting, 'на этой неделе', text)
+    extracted.assignee_name = 'Нурлан Сагатович'
+    extracted.assignee_speaker_id = meeting.speakers[0].id
+    result = ground_task(extracted, meeting, require_quote=True)
+    assert result.assignee_name == 'Тимур Балатович' and result.assignee_speaker_id is None
+    assert result.review_reasons and extracted.assignee_name == 'Нурлан Сагатович'
+
+
+def test_multiple_explicit_addresses_cannot_silently_change_assignee():
+    text = 'Анна Петровна, подготовьте отчёт. Иван Сергеевич, проверьте смету.'
+    meeting = meeting_from_texts(text)
+    extracted = task(meeting, None, text)
+    assert ground_task(extracted, meeting, require_quote=True).assignee_name is None
